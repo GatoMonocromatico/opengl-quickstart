@@ -15,7 +15,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/rotate_vector.hpp>
 
-#include "Camera.h"
+#include "camera.h"
 #include "texture.h"
 #include "animation.h"
 #include "shaderClass.h"

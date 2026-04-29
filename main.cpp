@@ -18,13 +18,14 @@
 #include <array>
 #include <iostream>
 #include <ctime>
+#include <algorithm>
 
 #include "Timer.h"
 #include <cmath>
 
 #include "animation.h"
 #include "Mesh.h"
-#include "Point.h"
+#include "point.h"
 #include "Light.h"
 #include "GameState.h"
 
@@ -35,19 +36,35 @@ bool moveCamera = false;
 SDLState initialize(int width, int height);
 void cleanup(SDLState& state);
 
+static void GLAPIENTRY glDebugOutput(
+	GLenum source,
+	GLenum type,
+	GLuint id,
+	GLenum severity,
+	GLsizei length,
+	const GLchar* message,
+	const void* userParam
+)
+{
+	(void)source;
+	(void)type;
+	(void)id;
+	(void)severity;
+	(void)length;
+	(void)userParam;
+	std::cerr << "[OpenGL] " << message << std::endl;
+}
+
 // Global-ish game state: FPS counter, future scene objects, etc.
 GameState gs = GameState();
 
 int main(int argc, char* argv[])
 {
-	std::cout << "entered main" << std::endl;
-
 	// Boot SDL, create an OpenGL 3.3 core context, load GLAD, set GL defaults.
 	SDLState state = initialize(1600, 900);
 
 	if (!state.successfullyInitialized)
 	{
-		cleanup(state);
 		return 1;
 	}
 
@@ -73,7 +90,9 @@ int main(int argc, char* argv[])
 	// Frame timing: SDL_GetTicks() is milliseconds since SDL_Init; deltaTime is seconds per frame.
 	uint64_t prevTime = SDL_GetTicks();
 
-	std::cout << "entered main loop" << std::endl;
+	// Cache uniform locations once; avoids repeated lookups in the hot loop.
+	const GLint numScenarioLightsLoc = glGetUniformLocation(res.shaderProgram[0].ID, "numScenarioLights");
+	const GLint texCoordOffsetLoc = glGetUniformLocation(res.shaderProgram[0].ID, "texCoordOffset");
 
 	while (running)
 	{
@@ -114,9 +133,13 @@ int main(int argc, char* argv[])
 				break;
 			}
 			case SDL_EVENT_WINDOW_RESIZED: {
-				// Viewport should usually match the drawable size; stored here for projection updates.
-				state.width = event.window.data1;
-				state.height = event.window.data2;
+				// Use drawable pixel size (not logical window size) for HiDPI-correct viewport/projection.
+				int drawableW = 0;
+				int drawableH = 0;
+				SDL_GetWindowSizeInPixels(state.window, &drawableW, &drawableH);
+				state.width = std::max(drawableW, 10);
+				state.height = std::max(drawableH, 10);
+				glViewport(0, 0, state.width, state.height);
 				break;
 			}
 			case SDL_EVENT_KEY_DOWN:
@@ -182,18 +205,11 @@ int main(int argc, char* argv[])
 			gs.fps = fpsBuffer;
 			fpsBuffer = 0;
 		}
-		std::cout << "[main] before FPS print" << std::endl;
-		std::cout << "FPS: " << gs.fps * 10 << std::endl;
-		std::cout << "[main] after FPS print" << std::endl;
 
 		// Reset color and depth buffers before drawing the new frame.
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		std::cout << "[main] after glClear" << std::endl;
 
 		res.shaderProgram[0].Activate();
-		
-		// Example render path (uncomment when Resources::load fills data):
-		std::cout << "[main] before camera/update uniforms" << std::endl;
 
 		// Recompute projection * view and upload as one matrix (see Camera::updateMatrix).
 		res.camera.updateMatrix(90.0f, 0.1f, 100.0f, state.width, state.height);
@@ -209,17 +225,12 @@ int main(int argc, char* argv[])
 			res.scenarioLights.data()
 		);
 
-		glUniform1i(glGetUniformLocation(res.shaderProgram[0].ID, "numScenarioLights"), static_cast<int>(res.scenarioLights.size()));
+		glUniform1i(numScenarioLightsLoc, static_cast<int>(res.scenarioLights.size()));
 
 		GameObject obj = gs.scenarioObjects[0];
 
 		// Atlas UV offset for current animation frame (shader adds this to mask UVs).
-		glUniform2f(glGetUniformLocation(res.shaderProgram[0].ID, "texCoordOffset"), obj.anims[0].getSpriteUVOffsetX(), obj.anims[0].getSpriteUVOffsetY());
-		std::cout << "[main] after light+anim uniforms" << std::endl;
-		
-		std::cout << "[main] scenarioObjects.size=" << gs.scenarioObjects.size()
-			<< " | meshs.size=" << res.meshs.size()
-			<< std::endl;
+		glUniform2f(texCoordOffsetLoc, obj.anims[0].getSpriteUVOffsetX(), obj.anims[0].getSpriteUVOffsetY());
 		
 		gs.scenarioObjects[0].Draw(res, res.shaderProgram[0], res.camera);
 
@@ -242,39 +253,67 @@ int main(int argc, char* argv[])
 
 SDLState initialize(int width, int height)
 {
-	bool initSuccess = true;
+	SDL_Window* window = nullptr;
+	SDL_GLContext context = nullptr;
+	auto fail = [&](const std::string& where) {
+		std::string msg = where + ": " + SDL_GetError();
+		std::cerr << msg << std::endl;
+		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Initialization Error", msg.c_str(), nullptr);
+		if (context) {
+			SDL_GL_DestroyContext(context);
+			context = nullptr;
+		}
+		if (window) {
+			SDL_DestroyWindow(window);
+			window = nullptr;
+		}
+		SDL_Quit();
+		return SDLState(width, height, width, height, nullptr, nullptr, false);
+	};
 
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", "Error initializing SDL3", nullptr);
-		initSuccess = false;
+		return fail("SDL_Init(SDL_INIT_VIDEO) failed");
 	}
 
 	// Request an OpenGL 3.3 core profile context before creating the window.
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+	int contextFlags = 0;
+#ifdef __APPLE__
+	contextFlags |= SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG;
+#endif
+#ifndef NDEBUG
+	contextFlags |= SDL_GL_CONTEXT_DEBUG_FLAG;
+#endif
+	SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, contextFlags);
 	// Depth buffer bit depth; required for glEnable(GL_DEPTH_TEST) to resolve occlusion correctly.
 	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 
-	SDL_Window* window = SDL_CreateWindow("Tetris Roguelike", width, height, SDL_WINDOW_OPENGL);
+	const SDL_WindowFlags windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+	window = SDL_CreateWindow("Tetris Roguelike", width, height, windowFlags);
 	if (!window) {
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", "Error creating window", nullptr);
-		initSuccess = false;
+		return fail("SDL_CreateWindow failed");
 	}
+	SDL_SetWindowMinimumSize(window, 10, 10);
 
 	// GL context holds all OpenGL state for this thread; one window typically has one context.
-	SDL_GLContext context = SDL_GL_CreateContext(window);
+	context = SDL_GL_CreateContext(window);
 	if (!context) {
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", "Error creating OpenGL Context", nullptr);
-		initSuccess = false;
+		return fail("SDL_GL_CreateContext failed");
 	}
 
-	SDL_GL_MakeCurrent(window, context);
+	if (!SDL_GL_MakeCurrent(window, context)) {
+		return fail("SDL_GL_MakeCurrent failed");
+	}
+
+	if (!SDL_GL_SetSwapInterval(1)) {
+		return fail("SDL_GL_SetSwapInterval(1) failed");
+	}
 
 	// GLAD loads function pointers for this OpenGL version; SDL supplies the loader hook.
 	if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", "Failed to initialize GLAD", nullptr);
-		initSuccess = false;
+		return fail("gladLoadGLLoader failed");
 	}
 
 	// GL_BLEND: alpha transparency; GL_DEPTH_TEST: near fragments win; GL_PROGRAM_POINT_SIZE: allow gl_PointSize in shaders.
@@ -284,14 +323,35 @@ SDLState initialize(int width, int height)
 	// Standard premultiplied-style blending for textures with alpha.
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-	SDLState state(width, height, width, height, window, context, initSuccess);
+	int drawableW = 0;
+	int drawableH = 0;
+	SDL_GetWindowSizeInPixels(window, &drawableW, &drawableH);
+	drawableW = std::max(drawableW, 10);
+	drawableH = std::max(drawableH, 10);
+	glViewport(0, 0, drawableW, drawableH);
+
+// #ifndef NDEBUG
+// 	if (GLAD_GL_VERSION_4_3 || GLAD_GL_KHR_debug) {
+// 		glEnable(GL_DEBUG_OUTPUT);
+// 		glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+// 		glDebugMessageCallback(glDebugOutput, nullptr);
+// 	}
+// #endif
+
+	SDLState state(drawableW, drawableH, width, height, window, context, true);
 
 	return state;
 }
 
 void cleanup(SDLState& state)
 {
-	SDL_GL_DestroyContext(state.context);
-	SDL_DestroyWindow(state.window);
+	if (state.context) {
+		SDL_GL_DestroyContext(state.context);
+		state.context = nullptr;
+	}
+	if (state.window) {
+		SDL_DestroyWindow(state.window);
+		state.window = nullptr;
+	}
 	SDL_Quit();
 }

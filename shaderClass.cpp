@@ -1,4 +1,6 @@
 #include "shaderClass.h"
+#include <stdexcept>
+#include <cstring>
 
 std::string getFileContents(const char* filename)
 {
@@ -13,7 +15,12 @@ std::string getFileContents(const char* filename)
 		in.close();
 		return(contents);
 	}
-	throw(errno);
+	const int err = errno;
+	const char* errMsg = std::strerror(err);
+	throw std::runtime_error(
+		std::string("Failed to read shader file '") + filename + "': " +
+		(errMsg ? errMsg : "unknown I/O error")
+	);
 }
 
 Shader::Shader(const char* vertexFile, const char* fragmentFile)
@@ -34,7 +41,10 @@ Shader::Shader(const char* vertexFile, const char* fragmentFile)
 	if (!success)
 	{
 		glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
-		std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
+		std::string errorMsg = std::string("Vertex shader compilation failed for '") + vertexFile + "':\n" + infoLog;
+		std::cerr << errorMsg << std::endl;
+		glDeleteShader(vertexShader);
+		throw std::runtime_error(errorMsg);
 	}
 	// Compile fragment stage (runs once per rasterized pixel/sample).
 	fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
@@ -44,7 +54,11 @@ Shader::Shader(const char* vertexFile, const char* fragmentFile)
 	if (!success)
 	{
 		glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
-		std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
+		std::string errorMsg = std::string("Fragment shader compilation failed for '") + fragmentFile + "':\n" + infoLog;
+		std::cerr << errorMsg << std::endl;
+		glDeleteShader(vertexShader);
+		glDeleteShader(fragmentShader);
+		throw std::runtime_error(errorMsg);
 	}
 	// Link into a program: matches in/out varyings must line up between stages.
 	ID = glCreateProgram();
@@ -55,7 +69,12 @@ Shader::Shader(const char* vertexFile, const char* fragmentFile)
 	if (!success)
 	{
 		glGetProgramInfoLog(ID, 512, NULL, infoLog);
-		std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
+		std::string errorMsg = std::string("Shader program linking failed (") + vertexFile + " + " + fragmentFile + "):\n" + infoLog;
+		std::cerr << errorMsg << std::endl;
+		glDeleteProgram(ID);
+		glDeleteShader(vertexShader);
+		glDeleteShader(fragmentShader);
+		throw std::runtime_error(errorMsg);
 	}
 	// Detach/delete shaders after link; the program keeps the compiled code.
 	glDeleteShader(vertexShader);

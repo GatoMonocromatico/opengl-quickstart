@@ -5,7 +5,7 @@
 
 #include "Timer.h"
 #include "Resources.h"
-#include "GameObject.h"
+#include "gameObject.h"
 
 
 // Everything SDL needs to show a window and an OpenGL context on this thread.

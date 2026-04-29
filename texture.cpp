@@ -1,10 +1,18 @@
 #include "texture.h"
+#include <stdexcept>
+#include <string>
 
 Texture::Texture(const char* image, const char* texType, GLenum slot, GLenum format, GLenum pixelType)
 {
 	type = texType;
 	this->slot = slot;
 	SDL_Surface* surface = IMG_Load(image);
+	if (!surface)
+	{
+		throw std::runtime_error(
+			std::string("Texture load failed for '") + image + "': " + SDL_GetError()
+		);
+	}
 
 	glGenTextures(1, &ID);
 	glActiveTexture(slot);
