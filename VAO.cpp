@@ -1,8 +1,10 @@
 #include "VAO.h"
+#include "DebugLog.h"
 
 VAO::VAO()
 {
 	glGenVertexArrays(1, &ID);
+	MDBG("phase", "VAO::VAO glGenVertexArrays");
 }
 
 void VAO::LinkAttrib(VBO& VBO, GLuint layout, GLuint numComponents, GLenum type, GLsizeiptr stride, void* offset, bool instanceAtrib)

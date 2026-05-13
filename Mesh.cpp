@@ -1,6 +1,6 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include "Mesh.h"
-#include <iostream>
+#include "DebugLog.h"
 
 Mesh::Mesh(std::vector<Vertex>& verts, std::vector<GLuint>& indxs, std::vector<Texture> textures, glm::vec3 model) :
 	vertices(verts),
@@ -90,7 +90,7 @@ void Mesh::createNormals()
 
 			if (numRepeatedVertices > 2)
 			{
-				std::cout << "Error: More than 2 repeated vertices in triangle, can't calculate normal" << std::endl;
+				DBG("Error: More than 2 repeated vertices in triangle, can't calculate normal");
 			}
 			else if (numRepeatedVertices != 0)
 			{
@@ -151,7 +151,7 @@ void Mesh::createNormals()
 		readIndex += 3;
 	}
 
-	std::cout << "vertices: " << vertices.size() << std::endl;
+	DBG("vertices_after_normals", vertices.size());
 
 	/*for (int i = 0; i < indices.size(); i++)
 	{
@@ -165,6 +165,7 @@ void Mesh::createNormals()
 
 void Mesh::Draw(Shader& shader, Camera& camera, glm::mat4 objectModel)
 {
+	MDBG("phase", "Mesh::Draw");
 	shader.Activate();
 	VAO1.Bind();
 
@@ -217,6 +218,7 @@ void Mesh::scaleModel(glm::vec3 scale)
 
 void Mesh::Draw(Shader& shader, Camera& camera, glm::mat4 objectModel, int numInstances)
 {
+	MDBG(DBG_N("phase", "Mesh::DrawInstanced"), DBG_N("numInstances", numInstances));
 	shader.Activate();
 	VAO1.Bind();
 

@@ -5,6 +5,7 @@
 // Indices describe which vertices form each triangle. glDrawElements uses the
 // bound GL_ELEMENT_ARRAY_BUFFER (this EBO) together with a bound VAO.
 
+#include "DebugLog.h"
 #include <glad/glad.h>
 #include <vector>
 

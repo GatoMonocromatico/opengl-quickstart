@@ -6,6 +6,7 @@
 // top-left UV for the current frame so the fragment shader can sample a cell.
 
 #include "Timer.h"
+#include "DebugLog.h"
 
 class Animation {
 	Timer timer = Timer(0);

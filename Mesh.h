@@ -5,6 +5,7 @@
 // Constructing a Mesh uploads vertices to a VBO, indices to an EBO, and stores
 // vertex attribute layout in a VAO so draw calls are just Bind + glDrawElements.
 
+#include "DebugLog.h"
 #include <string>
 #include "VAO.h"
 #include "EBO.h"

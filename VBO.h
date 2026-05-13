@@ -5,6 +5,7 @@
 // GL_ARRAY_BUFFER is interpreted according to the active VAO's vertex attrib
 // pointers (see VAO::LinkAttrib). Vertex matches the layout expected by Mesh.
 
+#include "DebugLog.h"
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <vector>

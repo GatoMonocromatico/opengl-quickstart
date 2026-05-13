@@ -1,9 +1,11 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include "point.h"
+#include "DebugLog.h"
 
 
 void Point::Draw(Shader& shader, Camera& camera)
 {
+	MDBG("phase", "Point::Draw");
 	shader.Activate();
 	VAO1.Bind();
 
@@ -22,6 +24,8 @@ Point::Point(std::vector<Vertex>& verts, glm::vec3 model) :
 	model(glm::translate(glm::mat4(1.0f), model))
 {
 	VAO1.Bind();
+
+	VBO1.createVBO(vertices);
 
 	// Same stride/offsets as Mesh so one mental model for attribute packing.
 	VAO1.LinkAttrib(VBO1, 0, 3, GL_FLOAT, sizeof(Vertex), (void*)0);

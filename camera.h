@@ -5,6 +5,7 @@
 // orientation is a forward vector; position + orientation + up define the view.
 // cameraMatrix is typically proj * view and is sent as one mat4 uniform.
 
+#include "DebugLog.h"
 #include <glm/glm.hpp>
 #include <SDL3/SDL.h>
 #include <glm/gtc/matrix_transform.hpp>

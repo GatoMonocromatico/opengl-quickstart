@@ -4,6 +4,7 @@
 // -----------------------------------------------------------------------------
 // Shader::ID is the OpenGL program name used with glUseProgram.
 
+#include "DebugLog.h"
 #include <glad/glad.h>
 #include <string>
 #include <fstream>

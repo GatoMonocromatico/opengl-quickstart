@@ -1,4 +1,6 @@
 #include "Resources.h"
+#include "RoundedCorner2D.h"
+#include "DebugLog.h"
 #include <cmath>
 #include <algorithm>
 
@@ -92,6 +94,7 @@ glm::vec3 Resources::hexadecimalToRGB(std::string hex, float saturationOffset)
 // Mesh/Point objects and OpenGL buffer setup.
 void Resources::load()
 {
+	MDBG("phase", "Resources::load begin");
 
 	// --- Example: build one textured quad-like mesh, optional point primitive, lights, UBO. ---
 
@@ -103,9 +106,11 @@ void Resources::load()
 		Vertex{ glm::vec3(50.0f, 50.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec2(1.0f, 1.0f), glm::vec2(1.0f, 1.0f), glm::vec3(0.0f, 0.0f, 0.0f), 1.0f },
 		Vertex{ glm::vec3(0.0f, 50.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), 1.0f },
 	});
-
+	
 	// --- Indices: two triangles (CCW winding is typical for front faces) ---
 	indices.push_back(std::vector<GLuint>{ 1, 0, 2, 3, 2, 0 });
+
+	geometry2d::roundMeshCorner2D(verts[0], indices[0], 0, 0.3f, 16);
 
 	// --- Textures: loaded from disk; "type" strings must match what GameObject::Draw expects ("tex", "mask") ---
 	texs[0].push_back(Texture("Textures/no-mask.png", "mask", GL_TEXTURE0, GL_RGBA, GL_UNSIGNED_BYTE));
@@ -114,7 +119,10 @@ void Resources::load()
 	Mesh blockMesh = Mesh(verts[0], indices[0], std::vector<Texture>{ texs[0][0], texs[1][0] });
 
 	meshs.push_back(blockMesh);
-	
+
+	Point point = Point(verts[0]);
+	points.push_back(point);
+
 	/*
 	// --- Point primitive (uses point.vert / point.frag and GL_POINTS) ---
 	verts.push_back(std::vector<Vertex>{texture
@@ -123,6 +131,8 @@ void Resources::load()
 	Point point = Point(verts[1]);
 	points.push_back(point);
 	*/
+	
+	
 
 	// camera.rotateCamera(glm::vec3(1.0f, 0.0f, 0.0f), glm::radians(-8.0f));
 
@@ -137,7 +147,7 @@ void Resources::load()
 	glBindBufferBase(GL_UNIFORM_BUFFER, 0, UBO);
 	if (lightBlockIndex1 == GL_INVALID_INDEX)
 	{
-		std::cout << "Lights uniform block not found in shader!" << std::endl;
+		DBG("Lights uniform block not found in shader!");
 	}
 
 	scenarioLights.push_back(Light{ glm::vec4(0.55f - 0.775f, 0.0f, 0.4f, 0.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(1.0f, 0.0f, 0.0f, 0.0f) });

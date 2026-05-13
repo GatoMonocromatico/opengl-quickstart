@@ -23,6 +23,8 @@
 #include "Timer.h"
 #include <cmath>
 
+#include "DebugLog.h"
+
 #include "animation.h"
 #include "Mesh.h"
 #include "point.h"
@@ -96,6 +98,7 @@ int main(int argc, char* argv[])
 
 	while (running)
 	{
+		DBG("[main loop] New Frame Computation");
 		uint64_t nowTime = SDL_GetTicks();
 		float deltaTime = (nowTime - prevTime) / 1000.0f;
 
@@ -233,6 +236,9 @@ int main(int argc, char* argv[])
 		glUniform2f(texCoordOffsetLoc, obj.anims[0].getSpriteUVOffsetX(), obj.anims[0].getSpriteUVOffsetY());
 		
 		gs.scenarioObjects[0].Draw(res, res.shaderProgram[0], res.camera);
+		
+		// res.shaderProgram[1].Activate();
+		// res.points[0].Draw(res.shaderProgram[1], res.camera);
 
 		// Present the back buffer: double-buffering means you draw off-screen, then swap.
 		SDL_GL_SwapWindow(state.window);
@@ -315,6 +321,7 @@ SDLState initialize(int width, int height)
 	if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
 		return fail("gladLoadGLLoader failed");
 	}
+	MDBG("phase", "gladLoadGLLoader completed (OpenGL entry points ready)");
 
 	// GL_BLEND: alpha transparency; GL_DEPTH_TEST: near fragments win; GL_PROGRAM_POINT_SIZE: allow gl_PointSize in shaders.
 	glEnable(GL_BLEND);

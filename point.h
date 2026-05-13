@@ -5,6 +5,7 @@
 // Uses the same Vertex layout as meshes so attribute locations stay consistent,
 // but drawing is glDrawArrays(GL_POINTS) instead of indexed triangles.
 
+#include "DebugLog.h"
 #include <string>
 #include "VAO.h"
 #include "EBO.h"

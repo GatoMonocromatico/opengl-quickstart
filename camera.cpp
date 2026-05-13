@@ -1,10 +1,12 @@
 #define GLM_ENABLE_EXPERIMENTAL
 
 #include "camera.h"
+#include "DebugLog.h"
 #include <algorithm>
 
 void Camera::updateMatrix(float FOVdeg, float nearPlane, float farPlane, int width, int height)
 {
+	MDBG(DBG_N("phase", "Camera::updateMatrix"), DBG_N("FOVdeg", FOVdeg), DBG_N("nearPlane", nearPlane), DBG_N("farPlane", farPlane), DBG_N("width", width), DBG_N("height", height));
 	const int safeWidth = std::max(width, 10);
 	const int safeHeight = std::max(height, 10);
 	// lookAt builds the inverse of the camera's rigid body transform in world space.

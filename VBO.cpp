@@ -1,8 +1,10 @@
 #include "VBO.h"
+#include "DebugLog.h"
 
 VBO::VBO()
 {
 	glGenBuffers(1, &ID);
+	MDBG("phase", "VBO::VBO glGenBuffers");
 }
 
 void VBO::createVBO(std::vector<Vertex>& vertices)

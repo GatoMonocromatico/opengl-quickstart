@@ -29,6 +29,7 @@ add_executable(fluxograme
     gameObject.cpp
     Mesh.cpp
     point.cpp
+    RoundedCorner2D.cpp
     Resources.cpp
     shaderClass.cpp
     texture.cpp
@@ -59,6 +60,9 @@ if(NOT SDL3_IMAGE_LIBRARY)
 endif()
 
 target_link_libraries(fluxograme PRIVATE "${SDL3_LIBRARY}" "${SDL3_IMAGE_LIBRARY}")
+
+# DEBUG enables DebugLog.h macros (DBG / MDBG); only on Debug to keep Release binaries quiet.
+target_compile_definitions(fluxograme PRIVATE $<$<CONFIG:Debug>:DEBUG>)
 
 if(WIN32)
     target_link_libraries(fluxograme PRIVATE opengl32)

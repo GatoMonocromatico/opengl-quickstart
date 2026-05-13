@@ -6,6 +6,7 @@
 // optional uniform buffers live together so main.cpp and game code have one
 // place to pull from. Extend it as your project grows.
 #define GLM_ENABLE_EXPERIMENTAL
+#include "DebugLog.h"
 #include "Mesh.h"
 #include "Light.h"
 #include "point.h"

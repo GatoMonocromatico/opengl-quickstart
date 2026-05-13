@@ -4,6 +4,7 @@
 // -----------------------------------------------------------------------------
 // `slot` is a GL_TEXTURE0 + n unit; texUnit wires a sampler uniform to that unit.
 
+#include "DebugLog.h"
 #include <glad/glad.h>
 #include <SDL3_image/SDL_image.h>
 

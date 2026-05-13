@@ -5,6 +5,7 @@
 // A GameObject does not own GPU buffers; it indexes into Resources::meshs and
 // multiplies its own model matrix with the mesh's base model matrix at draw time.
 #define GLM_ENABLE_EXPERIMENTAL
+#include "DebugLog.h"
 #include <glm/glm.hpp>
 #include <vector>
 #include <SDL3/SDL.h>

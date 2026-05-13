@@ -5,6 +5,8 @@
 // step() accumulates time; when it crosses `length`, timedOut becomes true until
 // reset()/restart(). Animation uses restart() to advance frames.
 
+#include "DebugLog.h"
+
 class Timer {
 	float time, length;
 	bool timedOut, startTimedOut;

@@ -3,6 +3,7 @@
 // GameState.h — per-run simulation state plus SDL/OpenGL window bundle
 // -----------------------------------------------------------------------------
 
+#include "DebugLog.h"
 #include "Timer.h"
 #include "Resources.h"
 #include "gameObject.h"

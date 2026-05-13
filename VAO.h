@@ -5,6 +5,7 @@
 // After setup, Bind() restores every vertex attribute configuration needed to
 // draw the mesh, so you do not re-specify pointers each frame.
 
+#include "DebugLog.h"
 #include <glad/glad.h>
 #include "VBO.h"
 
