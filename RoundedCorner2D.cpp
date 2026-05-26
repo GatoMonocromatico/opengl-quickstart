@@ -6,7 +6,7 @@
 #include <limits>
 #include <unordered_map>
 #include <unordered_set>
-#include <vector>
+#include <array>
 
 namespace
 {
@@ -89,9 +89,11 @@ namespace
 		const glm::vec2& p0,
 		const glm::vec2& p1,
 		glm::vec2& outCenter,
-		float& outRadius)
+		float& outRadius,
+		bool verbose)
 	{
-		MDBG(DBG_N("phase", "solveCircleCenterFromTangency begin"), DBG_N("corner.x", DBG_F6(corner.x)), DBG_N("corner.y", DBG_F6(corner.y)), DBG_N("p0.x", DBG_F6(p0.x)), DBG_N("p0.y", DBG_F6(p0.y)), DBG_N("p1.x", DBG_F6(p1.x)), DBG_N("p1.y", DBG_F6(p1.y)));
+		DBG("solveCircleCenterFromTangency: begin");
+		MDBG_IF(verbose, DBG_N("corner.x", DBG_F6(corner.x)), DBG_N("corner.y", DBG_F6(corner.y)), DBG_N("p0.x", DBG_F6(p0.x)), DBG_N("p0.y", DBG_F6(p0.y)), DBG_N("p1.x", DBG_F6(p1.x)), DBG_N("p1.y", DBG_F6(p1.y)));
 
 		const glm::vec2 d0 = safeNormalize2(p0 - corner);
 		const glm::vec2 d1 = safeNormalize2(p1 - corner);
@@ -134,7 +136,8 @@ namespace
 		const float centerDistance = radius / std::sin(angle * 0.5f);
 		outCenter = corner + bisector * centerDistance;
 		outRadius = radius;
-		MDBG(DBG_N("phase", "solveCircleCenterFromTangency ok"), DBG_N("center.x", DBG_F6(outCenter.x)), DBG_N("center.y", DBG_F6(outCenter.y)), DBG_N("radius", DBG_F6(outRadius)), DBG_N("angle_rad", DBG_F6(angle)), DBG_N("centerDistance", DBG_F6(centerDistance)));
+		DBG("solveCircleCenterFromTangency: ok");
+		MDBG_IF(verbose, DBG_N("center.x", DBG_F6(outCenter.x)), DBG_N("center.y", DBG_F6(outCenter.y)), DBG_N("radius", DBG_F6(outRadius)), DBG_N("angle_rad", DBG_F6(angle)), DBG_N("centerDistance", DBG_F6(centerDistance)));
 		return true;
 	}
 
@@ -149,40 +152,32 @@ bool geometry2d::roundMeshCorner2D(
 	std::vector<GLuint>& indices,
 	GLuint cornerVertexIndex,
 	float roundness,
-	int roundLineCount)
+	int roundLineCount,
+	bool verbose)
 {
-	MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D begin"), DBG_N("vertices_count", vertices.size()), DBG_N("indices_count", indices.size()), DBG_N("cornerVertexIndex", cornerVertexIndex), DBG_N("roundness", DBG_F6(roundness)), DBG_N("roundLineCount", roundLineCount));
+	DBG("roundMeshCorner2D: begin");
+	MDBG_IF(verbose, DBG_N("vertices_count", vertices.size()), DBG_N("indices_count", indices.size()), DBG_N("cornerVertexIndex", cornerVertexIndex), DBG_N("roundness", DBG_F6(roundness)), DBG_N("roundLineCount", roundLineCount));
 
 	if (cornerVertexIndex >= vertices.size())
 	{
-		MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D skip: invalid cornerVertexIndex"), DBG_N("cornerVertexIndex", cornerVertexIndex), DBG_N("vertices_count", vertices.size()));
+		MDBG(DBG_N("phase", "roundMeshCorner2D skip: invalid cornerVertexIndex"), DBG_N("cornerVertexIndex", cornerVertexIndex), DBG_N("vertices_count", vertices.size()));
 		return false;
 	}
 	if (!std::isfinite(roundness) || roundness < 0.0f || roundness > 1.0f)
 	{
-		MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D skip: invalid roundness"), DBG_N("roundness", DBG_F6(roundness)));
+		MDBG(DBG_N("phase", "roundMeshCorner2D skip: invalid roundness"), DBG_N("roundness", DBG_F6(roundness)));
 		return false;
 	}
 	if (roundLineCount < 1)
 	{
-		MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D skip: invalid roundLineCount"), DBG_N("roundLineCount", roundLineCount));
+		MDBG(DBG_N("phase", "roundMeshCorner2D skip: invalid roundLineCount"), DBG_N("roundLineCount", roundLineCount));
 		return false;
 	}
 
 	CornerTriangles data = collectCornerTriangles(indices, cornerVertexIndex);
-	MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D collected corner triangles"), DBG_N("corner_triangles", data.triangleStarts.size()), DBG_N("neighbor_vertices", data.neighborVertices.size()));
-	// Scope guard: this implementation supports the existing "quad corner style"
-	// where one corner is used by exactly two triangles.
-	if (data.triangleStarts.size() != 2)
-	{
-		MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D skip: unsupported topology (triangle count)"), DBG_N("corner_triangles", data.triangleStarts.size()));
-		return false;
-	}
-	if (data.neighborVertices.size() != 3)
-	{
-		MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D skip: unsupported topology (neighbor count)"), DBG_N("neighbor_vertices", data.neighborVertices.size()));
-		return false;
-	}
+	MDBG_IF(verbose, DBG_N("phase", "collected corner triangles"), DBG_N("corner_triangles", data.triangleStarts.size()), DBG_N("neighbor_vertices", data.neighborVertices.size()));
+	// Require at least two corner triangles.  N >= 2 is supported for star topology:
+	// N boundary edges fan out from the corner and all N triangles share one inner vertex.
 
 	std::unordered_map<EdgeKey, int, EdgeKeyHasher> edgeUseCount{};
 	for (size_t triStart : data.triangleStarts)
@@ -191,54 +186,85 @@ bool geometry2d::roundMeshCorner2D(
 		const GLuint a = indices[triStart];
 		const GLuint b = indices[triStart + 1];
 		const GLuint c = indices[triStart + 2];
-		MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D corner triangle"), DBG_N("triStart", triStart), DBG_N("a", a), DBG_N("b", b), DBG_N("c", c));
+		MDBG_IF(verbose, DBG_N("phase", "corner triangle"), DBG_N("triStart", triStart), DBG_N("a", a), DBG_N("b", b), DBG_N("c", c));
 		// Count how many times each undirected edge appears around this corner.
 		edgeUseCount[makeKey(a, b)] += 1;
 		edgeUseCount[makeKey(b, c)] += 1;
 		edgeUseCount[makeKey(c, a)] += 1;
 	}
 
-	// Supported topology (guarded above): exactly two triangles share the corner.
-	// The union of those two triangles contains exactly 3 other vertices:
-	// - Two are the endpoints of the corner edges (each edge appears once).
-	// - One is the "diagonal" vertex shared by both triangles (edge appears twice).
+	// Star topology: N boundary edges fan out from the corner and all N triangles share
+	// exactly one inner vertex (sharedNeighbor).  Each boundary neighbor edge appears once;
+	// the shared-neighbor edge appears N times (once per corner triangle).
+	// Fan topology (multiple vertices with uses > 1) is not supported.
 	std::vector<GLuint> boundaryNeighbors{};
-	// This is the vertex shared by both corner triangles (the "diagonal" of a quad split).
 	GLuint sharedNeighbor = std::numeric_limits<GLuint>::max();
 	for (GLuint n : data.neighborVertices)
 	{
 		const int uses = edgeUseCount[makeKey(cornerVertexIndex, n)];
-		MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D neighbor edge uses"), DBG_N("neighbor", n), DBG_N("uses", uses));
+		MDBG_IF(verbose, DBG_N("phase", "neighbor edge uses"), DBG_N("neighbor", n), DBG_N("uses", uses));
 		if (uses == 1)
 		{
 			boundaryNeighbors.push_back(n);
 		}
-		else if (uses == 2)
+		else if (uses > 1 && sharedNeighbor == std::numeric_limits<GLuint>::max())
 		{
 			sharedNeighbor = n;
 		}
 	}
-	if (boundaryNeighbors.size() != 2 || sharedNeighbor == std::numeric_limits<GLuint>::max())
+	if (sharedNeighbor == std::numeric_limits<GLuint>::max())
 	{
-		MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D skip: boundary/shared neighbor"), DBG_N("boundaryNeighbors", boundaryNeighbors.size()), DBG_N("sharedNeighbor", sharedNeighbor));
-		return false;
+		MDBG_IF(verbose, "sharedNeighbor was not determined", DBG_N("boundaryNeighbors", boundaryNeighbors.size()), DBG_N("sharedNeighbor", sharedNeighbor));
+		if (boundaryNeighbors.size()  != 2)
+		{
+			DBG("Unsuported topology: boundaryNeighbors.size() != 2");
+			return false;
+		}
+		sharedNeighbor = boundaryNeighbors[0];
+		DBG_IF(verbose, "sharedNeighbor", sharedNeighbor);
 	}
 
-	// Endpoints of the two segments that meet at the corner (the two "lines").
-	const GLuint edgeEndpointIndex0 = boundaryNeighbors[0];
-	const GLuint edgeEndpointIndex1 = boundaryNeighbors[1];
-	MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D resolved neighbor vertices"), DBG_N("edgeEndpointIndex0", edgeEndpointIndex0), DBG_N("edgeEndpointIndex1", edgeEndpointIndex1), DBG_N("sharedNeighbor", sharedNeighbor));
-
 	// `cornerV` is the original sharp corner vertex (will be removed).
-	// `edgeV*` are the vertices at the far ends of the two incident edges.
 	const Vertex cornerV = vertices[cornerVertexIndex];
-	const Vertex edgeV0 = vertices[edgeEndpointIndex0];
-	const Vertex edgeV1 = vertices[edgeEndpointIndex1];
-	MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D corner/edge positions"), DBG_N("corner.x", DBG_F6(cornerV.position.x)), DBG_N("corner.y", DBG_F6(cornerV.position.y)), DBG_N("corner.z", DBG_F6(cornerV.position.z)), DBG_N("edge0.x", DBG_F6(edgeV0.position.x)), DBG_N("edge0.y", DBG_F6(edgeV0.position.y)), DBG_N("edge0.z", DBG_F6(edgeV0.position.z)), DBG_N("edge1.x", DBG_F6(edgeV1.position.x)), DBG_N("edge1.y", DBG_F6(edgeV1.position.y)), DBG_N("edge1.z", DBG_F6(edgeV1.position.z)));
 
 	// This function rounds a *2D* corner, so geometry is computed in the XY plane.
 	// The original Z (cornerV.position.z) is preserved in every generated vertex.
 	const glm::vec2 cornerXY(cornerV.position.x, cornerV.position.y);
+
+	// Among all boundary neighbors, find the pair whose edge directions from the corner
+	// span the largest angle.  For N == 2 this is the only pair; for N > 2 this selects
+	// the two outermost edges that define the rounding arc.
+	GLuint edgeEndpointIndex0 = boundaryNeighbors[0];
+	GLuint edgeEndpointIndex1 = boundaryNeighbors[1];
+	{
+		float maxAngle = -1.0f;
+		for (size_t bi = 0; bi < boundaryNeighbors.size(); ++bi)
+		{
+			const glm::vec2 di = safeNormalize2(
+				glm::vec2(vertices[boundaryNeighbors[bi]].position.x,
+				          vertices[boundaryNeighbors[bi]].position.y) - cornerXY);
+			for (size_t bj = bi + 1; bj < boundaryNeighbors.size(); ++bj)
+			{
+				const glm::vec2 dj = safeNormalize2(
+					glm::vec2(vertices[boundaryNeighbors[bj]].position.x,
+					          vertices[boundaryNeighbors[bj]].position.y) - cornerXY);
+				const float angle = std::acos(glm::clamp(glm::dot(di, dj), -1.0f, 1.0f));
+				if (angle > maxAngle)
+				{
+					maxAngle = angle;
+					edgeEndpointIndex0 = boundaryNeighbors[bi];
+					edgeEndpointIndex1 = boundaryNeighbors[bj];
+				}
+			}
+		}
+	}
+	MDBG_IF(verbose, DBG_N("phase", "resolved neighbor vertices"), DBG_N("edgeEndpointIndex0", edgeEndpointIndex0), DBG_N("edgeEndpointIndex1", edgeEndpointIndex1), DBG_N("sharedNeighbor", sharedNeighbor));
+
+	// `edgeV*` are the vertices at the far ends of the two outermost incident edges.
+	const Vertex edgeV0 = vertices[edgeEndpointIndex0];
+	const Vertex edgeV1 = vertices[edgeEndpointIndex1];
+	MDBG_IF(verbose, DBG_N("phase", "corner/edge positions"), DBG_N("corner.x", DBG_F6(cornerV.position.x)), DBG_N("corner.y", DBG_F6(cornerV.position.y)), DBG_N("corner.z", DBG_F6(cornerV.position.z)), DBG_N("edge0.x", DBG_F6(edgeV0.position.x)), DBG_N("edge0.y", DBG_F6(edgeV0.position.y)), DBG_N("edge0.z", DBG_F6(edgeV0.position.z)), DBG_N("edge1.x", DBG_F6(edgeV1.position.x)), DBG_N("edge1.y", DBG_F6(edgeV1.position.y)), DBG_N("edge1.z", DBG_F6(edgeV1.position.z)));
+
 	const glm::vec2 edgeEndpointXY0(edgeV0.position.x, edgeV0.position.y);
 	const glm::vec2 edgeEndpointXY1(edgeV1.position.x, edgeV1.position.y);
 
@@ -247,10 +273,10 @@ bool geometry2d::roundMeshCorner2D(
 	const glm::vec2 cornerToEdge1 = edgeEndpointXY1 - cornerXY;
 	const float edgeLength0 = glm::length(cornerToEdge0);
 	const float edgeLength1 = glm::length(cornerToEdge1);
-	MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D edge lengths"), DBG_N("edgeLength0", DBG_F6(edgeLength0)), DBG_N("edgeLength1", DBG_F6(edgeLength1)));
+	MDBG_IF(verbose, DBG_N("phase", "edge lengths"), DBG_N("edgeLength0", DBG_F6(edgeLength0)), DBG_N("edgeLength1", DBG_F6(edgeLength1)));
 	if (edgeLength0 < kEpsilon || edgeLength1 < kEpsilon)
 	{
-		MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D skip: degenerate edge length"), DBG_N("edgeLength0", DBG_F6(edgeLength0)), DBG_N("edgeLength1", DBG_F6(edgeLength1)));
+		MDBG(DBG_N("phase", "roundMeshCorner2D skip: degenerate edge length"), DBG_N("edgeLength0", DBG_F6(edgeLength0)), DBG_N("edgeLength1", DBG_F6(edgeLength1)));
 		return false;
 	}
 
@@ -258,27 +284,27 @@ bool geometry2d::roundMeshCorner2D(
 	// We cap by the shorter edge to avoid cutting past an endpoint.
 	const float limitingEdgeLength = std::min(edgeLength0, edgeLength1);
 	const float shortenDistance = glm::clamp(roundness * limitingEdgeLength, 0.0f, limitingEdgeLength - kEpsilon);
-	MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D shorten distance"), DBG_N("limitingEdgeLength", DBG_F6(limitingEdgeLength)), DBG_N("shortenDistance", DBG_F6(shortenDistance)));
+	MDBG_IF(verbose, DBG_N("phase", "shorten distance"), DBG_N("limitingEdgeLength", DBG_F6(limitingEdgeLength)), DBG_N("shortenDistance", DBG_F6(shortenDistance)));
 	if (shortenDistance < kEpsilon)
 	{
-		MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D no-op: shortenDistance < epsilon"), DBG_N("shortenDistance", DBG_F6(shortenDistance)));
+		MDBG(DBG_N("phase", "roundMeshCorner2D no-op: shortenDistance < epsilon"), DBG_N("shortenDistance", DBG_F6(shortenDistance)));
 		return true;
 	}
 
 	// New endpoints after shortening each edge; the rounded arc connects these points.
 	const glm::vec2 cutPointXY0 = cornerXY + safeNormalize2(cornerToEdge0) * shortenDistance;
 	const glm::vec2 cutPointXY1 = cornerXY + safeNormalize2(cornerToEdge1) * shortenDistance;
-	MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D cut points"), DBG_N("cut0.x", DBG_F6(cutPointXY0.x)), DBG_N("cut0.y", DBG_F6(cutPointXY0.y)), DBG_N("cut1.x", DBG_F6(cutPointXY1.x)), DBG_N("cut1.y", DBG_F6(cutPointXY1.y)));
+	MDBG_IF(verbose, DBG_N("phase", "cut points"), DBG_N("cut0.x", DBG_F6(cutPointXY0.x)), DBG_N("cut0.y", DBG_F6(cutPointXY0.y)), DBG_N("cut1.x", DBG_F6(cutPointXY1.x)), DBG_N("cut1.y", DBG_F6(cutPointXY1.y)));
 
 	// circleCenter/radius define the fillet arc tangent to both shortened lines.
 	glm::vec2 circleCenter(0.0f);
 	float radius = 0.0f;
-	if (!solveCircleCenterFromTangency(cornerXY, cutPointXY0, cutPointXY1, circleCenter, radius))
+	if (!solveCircleCenterFromTangency(cornerXY, cutPointXY0, cutPointXY1, circleCenter, radius, verbose))
 	{
-		MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D skip: could not solve circle tangency"));
+		MDBG(DBG_N("phase", "roundMeshCorner2D skip: could not solve circle tangency"));
 		return false;
 	}
-	MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D circle solved"), DBG_N("center.x", DBG_F6(circleCenter.x)), DBG_N("center.y", DBG_F6(circleCenter.y)), DBG_N("radius", DBG_F6(radius)));
+	MDBG_IF(verbose, DBG_N("phase", "circle solved"), DBG_N("center.x", DBG_F6(circleCenter.x)), DBG_N("center.y", DBG_F6(circleCenter.y)), DBG_N("radius", DBG_F6(radius)));
 
 	// Represent the center->point radius vector as a complex number (x + i*y).
 	// Rotations become multiplication by cis(theta) instead of manual sin/cos each step.
@@ -293,7 +319,7 @@ bool geometry2d::roundMeshCorner2D(
 
 	const float step = delta / static_cast<float>(roundLineCount);
 	const std::complex<float> rotationStep = std::polar(1.0f, step); // cis(step)
-	MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D arc angles"), DBG_N("startAngle", DBG_F6(startAngle)), DBG_N("endAngle", DBG_F6(endAngle)), DBG_N("delta", DBG_F6(delta)), DBG_N("step", DBG_F6(step)));
+	MDBG_IF(verbose, DBG_N("phase", "arc angles"), DBG_N("startAngle", DBG_F6(startAngle)), DBG_N("endAngle", DBG_F6(endAngle)), DBG_N("delta", DBG_F6(delta)), DBG_N("step", DBG_F6(step)));
 
 	// All generated vertices inherit the original corner's attributes (UVs, color, intensity...).
 	// Only the position changes.
@@ -305,7 +331,7 @@ bool geometry2d::roundMeshCorner2D(
 	// Store the arc start vertex and remember its index.
 	const GLuint arcStartIndex = static_cast<GLuint>(vertices.size());
 	vertices.push_back(arcStartVertex);
-	MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D arc start vertex pushed"), DBG_N("arcStartIndex", arcStartIndex), DBG_N("vertices_count", vertices.size()));
+	MDBG_IF(verbose, DBG_N("phase", "arc start vertex pushed"), DBG_N("arcStartIndex", arcStartIndex), DBG_N("vertices_count", vertices.size()));
 
 	// Ordered list of all vertices along the rounded boundary, from start -> ... -> end.
 	std::vector<GLuint> arcIndices{};
@@ -324,105 +350,154 @@ bool geometry2d::roundMeshCorner2D(
 		);
 		arcIndices.push_back(static_cast<GLuint>(vertices.size()));
 		vertices.push_back(arcV);
-		MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D arc mid vertex pushed"), DBG_N("i", i), DBG_N("idx", arcIndices.back()), DBG_N("pos.x", DBG_F6(arcV.position.x)), DBG_N("pos.y", DBG_F6(arcV.position.y)), DBG_N("pos.z", DBG_F6(arcV.position.z)));
+		MDBG_IF(verbose, DBG_N("phase", "arc mid vertex pushed"), DBG_N("i", i), DBG_N("idx", arcIndices.back()), DBG_N("pos.x", DBG_F6(arcV.position.x)), DBG_N("pos.y", DBG_F6(arcV.position.y)), DBG_N("pos.z", DBG_F6(arcV.position.z)));
 	}
 
 	const GLuint arcEndIndex = static_cast<GLuint>(vertices.size());
-	vertices.push_back(arcEndVertex);	
-	
+	vertices.push_back(arcEndVertex);
+
 	arcIndices.push_back(arcEndIndex);
-	MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D arc end vertex pushed"), DBG_N("arcEndIndex", arcEndIndex), DBG_N("pos.x", DBG_F6(arcEndVertex.position.x)), DBG_N("pos.y", DBG_F6(arcEndVertex.position.y)), DBG_N("pos.z", DBG_F6(arcEndVertex.position.z)), DBG_N("arcVertexCount", arcIndices.size()));
+	MDBG_IF(verbose, DBG_N("phase", "arc end vertex pushed"), DBG_N("arcEndIndex", arcEndIndex), DBG_N("pos.x", DBG_F6(arcEndVertex.position.x)), DBG_N("pos.y", DBG_F6(arcEndVertex.position.y)), DBG_N("pos.z", DBG_F6(arcEndVertex.position.z)), DBG_N("arcVertexCount", arcIndices.size()));
 
 	std::vector<GLuint> rebuiltIndices{};
 	rebuiltIndices.reserve(indices.size() + static_cast<size_t>(roundLineCount) * 3);
+
+
+	Line startArcLine(arcStartIndex, cornerVertexIndex, vertices);
+	Line endArcLine(arcEndIndex, cornerVertexIndex, vertices);
+
+	MDBG_IF(verbose, DBG_N("start.direction.x", startArcLine.direction.x), DBG_N("start.direction.y", startArcLine.direction.y), DBG_N("start.constant.x", startArcLine.parametricEquations[0].constant), DBG_N("start.constant.y", startArcLine.parametricEquations[1].constant), DBG_N("end.direction.x", endArcLine.direction.x), DBG_N("end.direction.y", endArcLine.direction.y), DBG_N("end.constant.x", endArcLine.parametricEquations[0].constant), DBG_N("end.constant.y", endArcLine.parametricEquations[1].constant));
+
+
+	Line separationLine(sharedNeighbor, cornerVertexIndex, vertices);
+
+
+	auto getCosBetween = [&](glm::vec2 v1, glm::vec2 v2) {
+		return (v1.x * v2.x + v1.y * v2.y) / (double)(glm::length(v1) * glm::length(v2));
+	};
+
+	auto getDistanceDirectorVecToSepLine = [&](
+    unsigned int	idx,
+    const Line&		separationLine) 
+	{
+		const Vertex& myPoint = vertices[idx];
+		glm::vec2 pointAtSeparationLine = glm::vec2(
+			(float)separationLine.parametricEquations[0].constant,
+			(float)separationLine.parametricEquations[1].constant);
+
+		MDBG_IF(verbose, DBG_N("constant.x", pointAtSeparationLine.x), DBG_N("consntant.y", pointAtSeparationLine.y));
+		
+		glm::vec2 myPointToPointOnSepLine =
+		pointAtSeparationLine - glm::vec2(myPoint.position.x, myPoint.position.y);
+		MDBG_IF(verbose, DBG_N("myPointToPointOnSepLine.x", myPointToPointOnSepLine.x), DBG_N("myPointToPointOnSepLine.y", myPointToPointOnSepLine.y));
+		
+		glm::vec2 triangleAdjacentVec = 
+		(float)(glm::length(myPointToPointOnSepLine)
+		* getCosBetween(myPointToPointOnSepLine, separationLine.direction))
+		* separationLine.direction;
+
+		MDBG_IF(verbose, DBG_N("triangleAdjacentVec.x", triangleAdjacentVec.x), DBG_N("triangleAdjacentVec.y", triangleAdjacentVec.y));
+		
+		// not ready yet, needs verification to add or subtract triangleAdjacentVec
+		glm::vec2 vectorDistanceToSepLineTest1 = myPointToPointOnSepLine + triangleAdjacentVec;
+		glm::vec2 vectorDistanceToSepLineTest2 = myPointToPointOnSepLine - triangleAdjacentVec;
+		
+		if (glm::length(vectorDistanceToSepLineTest1) < glm::length(vectorDistanceToSepLineTest2))
+		{
+			return safeNormalize2(vectorDistanceToSepLineTest1);
+		}
+		else return safeNormalize2(vectorDistanceToSepLineTest2);
+	};
+
+	glm::vec2 startArcDistanceDirectionToSeparationLine = getDistanceDirectorVecToSepLine(arcStartIndex, separationLine);
+	glm::vec2 endArcDistanceDirectionToSeparationLine = getDistanceDirectorVecToSepLine(arcEndIndex, separationLine);
+
+	MDBG_IF(verbose, DBG_N("phase", "getting start arc and end arc distance director vector"), DBG_N("arcStart.dir.x", DBG_F6(startArcDistanceDirectionToSeparationLine.x)), DBG_N("arcStart.dir.y", DBG_F6(startArcDistanceDirectionToSeparationLine.y)));
+	if (glm::length(startArcDistanceDirectionToSeparationLine - endArcDistanceDirectionToSeparationLine) < kEpsilon)
+	{
+		DBG("phase", "roundMeshCorner2D fail: arc start and end are on the same side of the separation line");
+		return false;
+	}
 
 	// Remove ALL previous corner triangles so old sharp corner is not drawn anymore.
 	std::unordered_set<size_t> removeTriStarts(data.triangleStarts.begin(), data.triangleStarts.end());
 	for (size_t i = 0; i + 2 < indices.size(); i += 3)
 	{
-		GLuint i1 = indices[i];
-		GLuint i2 = indices[i+1];
-		GLuint i3 = indices[i+2];
+		std::array<GLuint, 3> triIndices = {indices[i], indices[i+1], indices[i+2]};
 
 		if (removeTriStarts.count(i) > 0)
 		{
-			GLuint thisCutPoint;
-
-			Line startArcLine(arcStartIndex, cornerVertexIndex, vertices);
-			Line endArcLine(arcEndIndex, cornerVertexIndex, vertices);
-			Line line1(i1, cornerVertexIndex, vertices);
-			Line line2(i2, cornerVertexIndex, vertices);
-			Line line3(i3, cornerVertexIndex, vertices);
-
-			MDBG(DBG_N("startArc_match_l1", (line1 == startArcLine)), DBG_N("startArc_match_l2", (line2 == startArcLine)), DBG_N("startArc_match_l3", (line3 == startArcLine)));
-			MDBG(DBG_N("endArc_match_l1", (line1 == endArcLine)), DBG_N("endArc_match_l2", (line2 == endArcLine)), DBG_N("endArc_match_l3", (line3 == endArcLine)));
-
-			if (line1 == startArcLine || line2 == startArcLine || line3 == startArcLine)
+			for (int j = 0; j < 3; j++)
 			{
-				thisCutPoint = arcStartIndex;
-				MDBG("branch", "startArc cut chosen");
+				if (triIndices[j] == cornerVertexIndex)	{triIndices[j] = triIndices[0]; triIndices[0] = cornerVertexIndex; continue;}
+				if (triIndices[j] == sharedNeighbor)	{triIndices[j] = triIndices[1]; triIndices[1] = sharedNeighbor;}
 			}
-			else if (line1 == endArcLine || line2 == endArcLine || line3 == endArcLine)
+			
+			glm::vec2 pointDistanceDirection = getDistanceDirectorVecToSepLine(triIndices[2], separationLine);
+
+			MDBG_IF(verbose, DBG_N("triStart", i), DBG_N("v1", triIndices[2]), DBG_N("v1.dir.x", DBG_F6(pointDistanceDirection.x)), DBG_N("v1.dir.y", DBG_F6(pointDistanceDirection.y)));
+
+			if (glm::length((pointDistanceDirection - startArcDistanceDirectionToSeparationLine)) < kEpsilon)
 			{
-				thisCutPoint = arcEndIndex;
-				MDBG("branch", "endArc cut chosen");
+				triIndices[0] = arcStartIndex;
 			}
-			else continue;
-
-			if (cornerVertexIndex == i1) i1 = thisCutPoint;
-			else if (cornerVertexIndex == i2) i2 = thisCutPoint;
-			else if (cornerVertexIndex == i3) i3 = thisCutPoint;
-			else continue;
-		}
-		rebuiltIndices.push_back(i1);
-		rebuiltIndices.push_back(i2);
-		rebuiltIndices.push_back(i3);
-	}
-	MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D indices rebuilt"), DBG_N("removed_triangles", data.triangleStarts.size()), DBG_N("old_indices_count", indices.size()), DBG_N("rebuilt_indices_count", rebuiltIndices.size()));
-
-
-	// Draw geometry matters here
-	if (data.triangleStarts.size() == 2)
-	{
-		// Replace the two removed triangles with a triangle fan anchored at `sharedNeighbor`.
-		// This fills exactly the same region, but with the rounded edge (the arc) as boundary.
-		for (size_t i = 0; i + 1 < arcIndices.size(); ++i)
-		{
-			rebuiltIndices.push_back(sharedNeighbor);
-			rebuiltIndices.push_back(arcIndices[i]);
-			rebuiltIndices.push_back(arcIndices[i + 1]);
-		}
-		MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D triangle fan appended"), DBG_N("sharedNeighbor", sharedNeighbor), DBG_N("fan_triangles", (arcIndices.size() > 1 ? (arcIndices.size() - 1) : static_cast<size_t>(0))), DBG_N("rebuilt_indices_count", rebuiltIndices.size()));
-
-		// Remove previous corner vertex and reindex.
-		std::vector<Vertex> rebuiltVertices{};
-		rebuiltVertices.reserve(vertices.size() - 1);
-		for (size_t i = 0; i < vertices.size(); ++i)
-		{
-			if (i == cornerVertexIndex)
+			else if (glm::length((pointDistanceDirection - endArcDistanceDirectionToSeparationLine)) < kEpsilon)
 			{
-				continue;
+				triIndices[0] = arcEndIndex;
 			}
-			rebuiltVertices.push_back(vertices[i]);
-		}
-
-		for (GLuint& idx : rebuiltIndices)
-		{
-			if (idx == cornerVertexIndex)
+			else
 			{
-				MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D fail: rebuilt indices still reference removed corner"), DBG_N("cornerVertexIndex", cornerVertexIndex));
+				MDBG(DBG_N("phase", "roundMeshCorner2D fail: triangle side matches neither arc start nor arc end"),
+				     DBG_N("triStart", i),
+				     DBG_N("tri.dir.x",      DBG_F6(pointDistanceDirection.x)),                   DBG_N("tri.dir.y",      DBG_F6(pointDistanceDirection.y)),
+				     DBG_N("arcStart.dir.x", DBG_F6(startArcDistanceDirectionToSeparationLine.x)), DBG_N("arcStart.dir.y", DBG_F6(startArcDistanceDirectionToSeparationLine.y)),
+				     DBG_N("arcEnd.dir.x",   DBG_F6(endArcDistanceDirectionToSeparationLine.x)),   DBG_N("arcEnd.dir.y",   DBG_F6(endArcDistanceDirectionToSeparationLine.y)));
 				return false;
 			}
-			idx = static_cast<GLuint>(indexAfterRemoval(static_cast<int>(idx), static_cast<int>(cornerVertexIndex)));
 		}
-		vertices = std::move(rebuiltVertices);
-		indices = std::move(rebuiltIndices);
+		rebuiltIndices.push_back(triIndices[0]);
+		rebuiltIndices.push_back(triIndices[1]);
+		rebuiltIndices.push_back(triIndices[2]);
 	}
-	MDBG(DBG_N("phase", "geometry2d::roundMeshCorner2D done"), DBG_N("vertices_count", vertices.size()), DBG_N("indices_count", indices.size()));
-	
+	MDBG_IF(verbose, DBG_N("phase", "indices rebuilt"), DBG_N("removed_triangles", data.triangleStarts.size()), DBG_N("old_indices_count", indices.size()), DBG_N("rebuilt_indices_count", rebuiltIndices.size()));
+
+
+	// Replace the removed corner triangles with a triangle fan anchored at sharedNeighbor.
+	// Works for any N >= 2 star-topology corner: the arc spans from arcIndices[0] to
+	// arcIndices[last] and the fan fills the region that the old sharp corner occupied.
+	for (size_t i = 0; i + 1 < arcIndices.size(); ++i)
+	{
+		rebuiltIndices.push_back(sharedNeighbor);
+		rebuiltIndices.push_back(arcIndices[i]);
+		rebuiltIndices.push_back(arcIndices[i + 1]);
+	}
+	MDBG_IF(verbose, DBG_N("phase", "triangle fan appended"), DBG_N("sharedNeighbor", sharedNeighbor), DBG_N("fan_triangles", (arcIndices.size() > 1 ? (arcIndices.size() - 1) : static_cast<size_t>(0))), DBG_N("rebuilt_indices_count", rebuiltIndices.size()));
+
+	// Remove the original corner vertex and shift every index above it down by one.
+	std::vector<Vertex> rebuiltVertices{};
+	rebuiltVertices.reserve(vertices.size() - 1);
+	for (size_t i = 0; i < vertices.size(); ++i)
+	{
+		if (i == cornerVertexIndex) continue;
+		rebuiltVertices.push_back(vertices[i]);
+	}
+
+	for (GLuint& idx : rebuiltIndices)
+	{
+		if (idx == cornerVertexIndex)
+		{
+			MDBG(DBG_N("phase", "roundMeshCorner2D fail: rebuilt indices still reference removed corner"), DBG_N("cornerVertexIndex", cornerVertexIndex));
+			return false;
+		}
+		idx = static_cast<GLuint>(indexAfterRemoval(static_cast<int>(idx), static_cast<int>(cornerVertexIndex)));
+	}
+	vertices = std::move(rebuiltVertices);
+	indices = std::move(rebuiltIndices);
+	MDBG(DBG_N("phase", "roundMeshCorner2D done"), DBG_N("vertices_count", vertices.size()), DBG_N("indices_count", indices.size()));
+
 	for (Vertex& v : vertices)
 	{
-		MDBG(DBG_N("vertex.x", DBG_F6(v.position.x)), DBG_N("vertex.y", DBG_F6(v.position.y)));
+		MDBG_IF(verbose, DBG_N("vertex.x", DBG_F6(v.position.x)), DBG_N("vertex.y", DBG_F6(v.position.y)));
 	}
 
 	return true;

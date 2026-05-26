@@ -1,91 +1,233 @@
-# OpenGL dev environment
+# fluxograme
 
-A small, **plug-and-play C++ base** for learning and extending OpenGL: SDL3 window and input, GLAD for OpenGL 3.3 Core, GLM for math, and lightly abstracted wrappers (VAO, VBO, EBO, shaders, textures, mesh, camera). The code is commented so you can follow the pipeline step by step and replace pieces as you grow out of them.
-
-> **Note:** `glad.c` / `Libraries/include/glad/` are generated/third-party loader code; the rest of the sources are the project’s own starting point.
+A **plug-and-play C++20 / OpenGL 3.3 Core quickstart** that builds and runs on **Linux and Windows** right after `git clone` — no system-wide library installs required. All third-party headers and pre-built binaries live inside `Libraries/`.
 
 ## Stack
 
 | Piece | Role |
-|--------|------|
-| **OpenGL 3.3 Core** | Graphics API (context requested in `main.cpp`) |
-| **GLAD** | Loads OpenGL function pointers after context creation |
+|---|---|
+| **OpenGL 3.3 Core** | Graphics API (context created in `main.cpp`) |
+| **GLAD** | Loads OpenGL function pointers — bundled as `glad.c` + `Libraries/include/glad/` |
 | **SDL3** | Window, events, OpenGL context, timing |
-| **SDL3_image** | Loading images for `Texture` (e.g. PNG) |
+| **SDL3_image** | PNG/JPG loading for `Texture` |
 | **GLM** | Vectors, matrices, `lookAt`, `perspective` |
 
-Language: **C++20** (see `OpenGL-dev-env.vcxproj`).
+All headers are under `Libraries/include/`. Pre-built libraries live under `Libraries/lib_linux/lib/` (Linux) and `Libraries/lib_win/lib/` (Windows). CMake picks the right folder automatically.
+
+Language: **C++20**.
+
+## Build
+
+### Linux
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
+```
+
+Run from the project root (shaders are loaded relative to the working directory):
+
+```bash
+./build/fluxograme
+```
+
+Or use the helper script (builds then runs under GDB for a crash backtrace):
+
+```bash
+./run.sh
+```
+
+### Windows
+
+```powershell
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Debug
+```
+
+SDL3.dll and SDL3_image.dll are automatically copied next to the `.exe` by a post-build step, so no manual DLL placement is needed.
+
+### Release build
+
+```bash
+cmake -S . -B build-release -DCMAKE_BUILD_TYPE=Release
+cmake --build build-release
+```
+
+The `DEBUG` macro (and all `DebugLog.h` output) is enabled only in **Debug** builds; Release compiles it out completely.
+
+## Controls
+
+| Input | Action |
+|---|---|
+| **O** | Toggle mouse-look (hides cursor, camera follows mouse) |
+| **P** | Reset camera to forward (-Z) |
+| **W / S** | Move camera forward / back (Z axis) |
+| **A / D** | Move camera left / right (X axis) |
+| **Q / E** | Move camera up / down (Y axis) |
 
 ## Repository layout
 
 ```
-OpenGL-dev-env/
+fluxograme/
 ├── main.cpp              # Entry: init, main loop, cleanup
-├── GameState.h           # SDL bundle + simple game state
-├── Resources.h/.cpp      # Scene assets (meshes, lights, shaders, UBO, …)
-├── Mesh.* / VAO.* / VBO.* / EBO.*
-├── shaderClass.*         # Load & compile GLSL, link program
-├── texture.*             # 2D textures via SDL_image
-├── camera.* / gameObject.* / point.*
-├── default.vert / default.frag   # Main mesh pipeline
-├── point.vert / point.frag     # GL_POINTS helper pipeline
-├── glad.c                # GLAD (do not edit unless regenerating)
-└── Libraries/
-    ├── include/          # GLM, SDL3, glad, …
-    └── lib/              # .lib files for MSVC
+├── GameState.h           # SDLState (window+context bundle) + GameState (scene objects, FPS)
+├── Resources.h/.cpp      # Central GPU asset store (shaders, meshes, textures, lights, UBO)
+│
+├── Mesh.h/.cpp           # VAO+VBO+EBO geometry, instanced draw, normal generation
+├── VAO.h/.cpp            # Vertex Array Object wrapper
+├── VBO.h/.cpp            # Vertex Buffer Object wrapper
+├── EBO.h/.cpp            # Element Buffer Object wrapper
+├── shaderClass.h/.cpp    # Compile/link GLSL stages into a program object
+├── texture.h/.cpp        # 2-D texture loading via SDL_image
+│
+├── camera.h/.cpp         # FPS-style camera: yaw/pitch, proj*view matrix, shader upload
+├── gameObject.h/.cpp     # Logical entity: indexes a Mesh in Resources + own transform
+├── Light.h               # CPU mirror of GLSL Light struct (std140)
+├── animation.h           # Sprite-sheet grid animator (UV offset per frame)
+├── Timer.h               # Interval flag used by FPS counter and Animation
+├── point.h/.cpp          # GL_POINTS helper (separate pipeline)
+├── RoundedCorner2D.h/.cpp # Mesh utility: round a triangle-mesh corner in 2D
+│
+├── DebugLog.h            # Zero-cost debug logging macros (see section below)
+│
+├── default.vert/.frag    # Main mesh pipeline (instancing, lighting, mask alpha)
+├── point.vert/.frag      # GL_POINTS pipeline
+│
+├── glad.c                # GLAD loader — do not edit unless regenerating
+├── Libraries/
+│   ├── include/          # GLAD, GLM, SDL3, SDL3_image headers
+│   ├── lib_linux/lib/    # Linux shared objects
+│   └── lib_win/lib/      # Windows import libs + DLLs
+│
+├── Textures/             # Sample textures (block.png, no-mask.png)
+└── run.sh                # Build + run under GDB (Linux only)
 ```
 
-Shaders are loaded from paths **relative to the process working directory**, so run the executable from the folder that contains `default.vert` / `default.frag` (or adjust paths in code).
+## Adding your own geometry
 
-## Prerequisites
+1. **Define vertices and indices** — `Vertex` is declared in `VBO.h` (position, texcoord, mask texcoord, normal, instance offset, luminance).
+2. **Populate `Resources::load()`** in `Resources.cpp` — upload meshes, load textures, set up lights, create the UBO.
+3. **Add a `GameObject`** to `GameState::scenarioObjects` pointing at your mesh index.
+4. **Call `Draw`** in the main loop (see `gs.scenarioObjects[0].Draw(...)` in `main.cpp`).
 
-- **Windows** (project is set up for **Visual Studio** / MSVC).
-- **Visual Studio 2022** (or newer) with the **Desktop development with C++** workload.
-- **GPU drivers** that support OpenGL 3.3 Core.
+### Shader uniforms expected by `default.vert` / `default.frag`
 
-Third-party binaries and headers are expected under `Libraries\include` and `Libraries\lib`, with **SDL3** and **SDL3_image** DLLs available next to the built `.exe` at runtime (the project lists `SDL3.dll` and `SDL3_image.dll` as content—copy them if they are not already beside the output).
+| Uniform | Type | Purpose |
+|---|---|---|
+| `camMatrix` | `mat4` | Combined projection × view (from `Camera::updateMatrix`) |
+| `model` | `mat4` | Per-object model transform |
+| `texCoordOffset` | `vec2` | Sprite-sheet animation UV offset |
+| `tex0` | `sampler2D` | Color texture (unit 0) |
+| `mask0` | `sampler2D` | Alpha mask texture (unit 1) |
+| `numScenarioLights` | `int` | Active lights in the `ScenarioLights` UBO block |
 
-## Build (Visual Studio)
+Lights are streamed each frame via `glBufferSubData` into a UBO bound to GLSL `layout(std140) uniform ScenarioLights`.
 
-1. Clone the repository.
-2. Open **`OpenGL-dev-env.slnx`** (or **`OpenGL-dev-env.vcxproj`**).
-3. Select a configuration (**Debug** recommended first) and platform (**x64**).
-4. **Important for forks and other machines:** the `.vcxproj` may contain **absolute** `IncludePath` / `LibraryPath` entries pointing at the original author’s machine. Replace them with paths relative to the project, for example:
-   - Include: `$(ProjectDir)Libraries\include`
-   - Library: `$(ProjectDir)Libraries\lib`
-5. Ensure **Release** configurations link the same libraries as Debug if you hit unresolved externals (`SDL3.lib`, `SDL3_image.lib`, `opengl32.lib`, and `glm.lib` as in the Debug settings).
-6. Build **Build → Build Solution**.
+---
 
-Output executable location follows the default MSVC layout (e.g. `OpenGL-dev-env\x64\Debug\`).
+## DebugLog.h
 
-## Run
+Zero-overhead debug logging controlled by the `DEBUG` preprocessor macro. CMake defines `DEBUG` in **Debug** builds only; in Release every macro compiles away to `((void)0)` with no runtime cost.
 
-- Place **`SDL3.dll`** and **`SDL3_image.dll`** next to the `.exe` (or on the PATH) if Windows reports missing DLLs.
-- Run with the **working directory** set to the directory that contains the shader files (project root is typical during development).
+Include it anywhere you need logging — it is already pulled into every project header.
 
-### Default controls (from `main.cpp`)
+### Macros
 
-| Input | Action |
-|--------|--------|
-| **O** | Toggle mouse-look (relative mouse mode) |
-| **P** | Reset camera orientation |
-| **Arrow keys** | Move camera on XZ |
-| **Left Ctrl / Left Shift** | Move camera down / up |
+#### `DBG(value)` — print one value
 
-The sample **`Resources::load()`** is mostly commented out; uncomment and supply your own meshes/textures when you want geometry on screen.
+```cpp
+DBG(42);
+DBG("Hello world");
+DBG(someFloatVariable);
+```
 
-## Learning path
+Prints:  `[filename.cpp] <value>`
 
-1. **`initialize()`** in `main.cpp` — context, GLAD, global GL state (`DEPTH_TEST`, `BLEND`, …).
-2. **`Shader`** — how vertex/fragment sources become a program.
-3. **`Mesh`** — VAO layout matches `default.vert` attribute locations.
-4. **`Camera::updateMatrix`** — `proj * view` uploaded as `camMatrix`.
-5. **`GameObject::Draw`** — textures, uniforms, `glDrawElements`.
+Two-argument form adds a label:
 
-## Contributing
+```cpp
+DBG("vertexCount", mesh.vertices.size());
+```
 
-Pull requests are welcome. If you change the build, prefer **relative** `$(ProjectDir)` paths in the `.vcxproj` so clones build without editing machine-specific paths.
+Prints: `[filename.cpp] vertexCount=42`
+
+---
+
+#### `MDBG(...)` — print multiple fields on one line
+
+Separates each argument with ` | ` after a single file prefix.
+
+```cpp
+MDBG("phase", "init done", "width", state.width, "height", state.height);
+```
+
+Prints: `[main.cpp] phase | init done | width | 1600 | height | 900`
+
+Combine with `DBG_N` to get `name=value` pairs:
+
+```cpp
+MDBG(DBG_N("x", pos.x), DBG_N("y", pos.y), DBG_N("z", pos.z));
+```
+
+Prints: `[camera.cpp] x=1.500000 | y=0.000000 | z=-3.200000`
+
+---
+
+#### `DBG_N(name, value)` — named field for use inside `MDBG`
+
+```cpp
+MDBG(DBG_N("dt", deltaTime), DBG_N("fps", gs.fps));
+```
+
+---
+
+#### `DBG_F6(value)` — float formatted to 6 decimal places
+
+Wraps any numeric value so it prints as `fixed` with six decimal places without affecting the stream flags of surrounding output.
+
+```cpp
+MDBG(DBG_N("angle", DBG_F6(yaw)), DBG_N("pitch", DBG_F6(pitch)));
+```
+
+Prints: `[camera.cpp] angle=−90.000000 | pitch=0.000000`
+
+---
+
+#### `DBG_IF(cond, ...)` / `MDBG_IF(cond, ...)` — runtime-gated output
+
+Same signatures as `DBG` and `MDBG` but only emit when `cond` is true. Use this to flip logging on or off for a specific function or block without touching the global `DEBUG` flag.
+
+```cpp
+void buildMesh(bool verbose = false)
+{
+    DBG_IF(verbose, "enter buildMesh");
+    DBG_IF(verbose, "vertexCount", verts.size());
+
+    MDBG_IF(verbose, DBG_N("min", aabb.min), DBG_N("max", aabb.max));
+}
+```
+
+The condition is evaluated at runtime only in Debug builds. In Release both macros expand to `((void)0)` — the condition is never evaluated and the call compiles out entirely.
+
+---
+
+### Release behaviour
+
+In Release, all six macros expand to `((void)0)`:
+
+```cpp
+#define DBG(...)         ((void)0)
+#define MDBG(...)        ((void)0)
+#define DBG_N(n, v)      ((void)0)
+#define DBG_F6(x)        ((void)0)
+#define DBG_IF(c, ...)   ((void)0)
+#define MDBG_IF(c, ...)  ((void)0)
+```
+
+The compiler eliminates them entirely — no branches, no string literals, no I/O.
+
+---
 
 ## License
 
-This project is released under the [MIT License](LICENSE).
+MIT — see `LICENSE`.

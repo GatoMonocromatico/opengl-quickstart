@@ -5,6 +5,8 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include "Mesh.h"
 #include <cmath>
+#include <vector>
+
 
 namespace geometry2d
 {
@@ -16,36 +18,61 @@ namespace geometry2d
 		std::vector<GLuint>& indices,
 		GLuint cornerVertexIndex,
 		float roundness,
-		int roundLineCount
+		int roundLineCount,
+		bool verbose = false
 	);
+
+	struct parametricDescription{
+		double coeficient = 0;
+		double constant = 0;
+	};
 
 	struct Line 
 	{
-		double coeficient = 0;
-		double constant = 0;
-		bool isValid = false;
+		glm::vec2 direction{};
+		std::vector<parametricDescription> parametricEquations{};
 
 		Line(GLuint lineEndPoint1, GLuint lineEndPoint2, std::vector<Vertex>& vertices)
 		{
+			parametricEquations.resize(2);
 			Vertex& EndPoint1 = vertices[lineEndPoint1];
 			Vertex& EndPoint2 = vertices[lineEndPoint2];
 
-			coeficient = (EndPoint1.position.y - EndPoint2.position.y) / (double) (EndPoint1.position.x - EndPoint2.position.x);
-			constant = std::isinf(coeficient) ? EndPoint1.position.x : coeficient * EndPoint1.position.x - EndPoint1.position.y;
+			direction.x = (EndPoint1.position.x - EndPoint2.position.x);
+			direction.y = (EndPoint1.position.y - EndPoint2.position.y);
 
-			isValid = lineEndPoint1 != lineEndPoint2;
+			direction = glm::normalize(direction);
+
+			if (std::abs(std::abs(direction.y) - 1) < kEpsilon)
+			{
+				parametricEquations[0].constant = EndPoint1.position.x;
+			}
+			else if (std::abs(std::abs(direction.x) - 1) < kEpsilon)
+			{
+				parametricEquations[1].constant = EndPoint1.position.y;
+			}
+			else 
+			{
+				DBG("opa");
+				parametricEquations[1].constant = (direction.y / (double) direction.x) * EndPoint1.position.x - EndPoint1.position.y;
+			}
+
+			parametricEquations[0].coeficient = direction.x;
+			parametricEquations[1].coeficient = direction.y;
 		}
 
 		bool operator==(Line& l)
 		{
-			if (std::isinf(l.coeficient) && std::isinf(coeficient))
+			if (parametricEquations.size() != l.parametricEquations.size()) return false;
+
+			for (int i = 0; i < parametricEquations.size(); i++)
 			{
-				return std::abs(l.constant - constant) < kEpsilon && l.isValid && isValid;
+				parametricDescription& eq1 = parametricEquations[i];
+				parametricDescription& eq2 = l.parametricEquations[i];
+				if (std::abs(eq1.coeficient - eq2.coeficient) > kEpsilon || std::abs(eq1.constant - eq2.constant) > kEpsilon) return false;
 			}
-			else 
-			{
-				return std::abs(l.coeficient - coeficient) < kEpsilon && std::abs(l.constant - constant) < kEpsilon && l.isValid && isValid;
-			}
+
+			return true;
 		}
 	};
 }

@@ -123,11 +123,20 @@ void mdbgEmitLine(const char* file, Args&&... args)
 // Step: numeric helper for stable float layout without mutating external iostream state.
 #define DBG_F6(x) ::flux::detail::Fixed6{ static_cast<float>(x) }
 
+// Step: runtime-gated variants — same signatures as DBG/MDBG but only emit when cond is true.
+#define DBG_IF(cond, ...) \
+	do { if (cond) { DBG(__VA_ARGS__); } } while (0)
+
+#define MDBG_IF(cond, ...) \
+	do { if (cond) { MDBG(__VA_ARGS__); } } while (0)
+
 #else
 
 #define DBG(...) ((void)0)
 #define MDBG(...) ((void)0)
 #define DBG_N(name, val) ((void)0)
 #define DBG_F6(x) ((void)0)
+#define DBG_IF(cond, ...) ((void)0)
+#define MDBG_IF(cond, ...) ((void)0)
 
 #endif

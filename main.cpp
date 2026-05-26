@@ -209,6 +209,8 @@ int main(int argc, char* argv[])
 			fpsBuffer = 0;
 		}
 
+		DBG("FPS", gs.fps * 10);
+
 		// Reset color and depth buffers before drawing the new frame.
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
@@ -242,6 +244,14 @@ int main(int argc, char* argv[])
 
 		// Present the back buffer: double-buffering means you draw off-screen, then swap.
 		SDL_GL_SwapWindow(state.window);
+
+		uint64_t final_time = SDL_GetTicks();
+
+		MDBG(DBG_N("delta", final_time - nowTime), DBG_N("frame-time", 1 / (double) gs.fpsLimit));
+		while ((final_time - nowTime)/ 1000.0f < 1 / (double) gs.fpsLimit)
+		{
+			final_time = SDL_GetTicks();
+		}
 
 		prevTime = nowTime;
 	}

@@ -38,6 +38,7 @@ struct GameState
 	Timer FPSTimer = Timer(0.1f);
 
 	int fps = 0;
+	int fpsLimit = 10;
 
 	// Each GameObject points at a Mesh index inside Resources and carries its own model matrix.
 	std::vector<GameObject> scenarioObjects;
