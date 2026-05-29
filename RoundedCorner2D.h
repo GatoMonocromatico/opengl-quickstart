@@ -17,7 +17,7 @@ namespace geometry2d
 		std::vector<Vertex>& vertices,
 		std::vector<GLuint>& indices,
 		GLuint cornerVertexIndex,
-		float roundness,
+		float shortenDistance,
 		int roundLineCount,
 		bool verbose = false
 	);
@@ -65,14 +65,32 @@ namespace geometry2d
 		{
 			if (parametricEquations.size() != l.parametricEquations.size()) return false;
 
+			bool avaliationSameDirection = true;
+			bool avaliationOpositeDirection = true;
+
 			for (int i = 0; i < parametricEquations.size(); i++)
 			{
 				parametricDescription& eq1 = parametricEquations[i];
 				parametricDescription& eq2 = l.parametricEquations[i];
-				if (std::abs(eq1.coeficient - eq2.coeficient) > kEpsilon || std::abs(eq1.constant - eq2.constant) > kEpsilon) return false;
+				if (std::abs(eq1.coeficient - eq2.coeficient) > kEpsilon || std::abs(eq1.constant - eq2.constant) > kEpsilon)
+				{
+					avaliationSameDirection = false;
+					break;
+				}
 			}
 
-			return true;
+			for (int i = 0; i < parametricEquations.size(); i++)
+			{
+				parametricDescription& eq1 = parametricEquations[i];
+				parametricDescription& eq2 = l.parametricEquations[i];
+				if (std::abs(eq1.coeficient + eq2.coeficient) > kEpsilon || std::abs(eq1.constant - eq2.constant) > kEpsilon)
+				{
+					avaliationOpositeDirection = false;
+					break;
+				}
+			}
+
+			return avaliationOpositeDirection || avaliationSameDirection;
 		}
 	};
 }

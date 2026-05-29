@@ -110,9 +110,8 @@ void Resources::load()
 	// --- Indices: two triangles (CCW winding is typical for front faces) ---
 	indices.push_back(std::vector<GLuint>{ 1, 0, 2, 3, 2, 0 });
 
-	geometry2d::roundMeshCorner2D(verts[0], indices[0], 3, 0.3f, 2, true);
-	// geometry2d::roundMeshCorner2D(verts[0], indices[0], 2, 0.3f, 16);
-	// geometry2d::roundMeshCorner2D(verts[0], indices[0], 1, 0.3f, 16);
+	// geometry2d::roundMeshCorner2D(verts[0], indices[0], 3, 20, 2, true);
+
 	for (size_t i = 0; i + 2 < indices[0].size(); i += 3) MDBG(indices[0][i], indices[0][i+1], indices[0][i+2]);
 	
 	// geometry2d::roundMeshCorner2D(verts[0], indices[0], 0, 0.3f, 16, true);
