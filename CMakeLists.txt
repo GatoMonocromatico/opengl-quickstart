@@ -1,86 +1,115 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(fluxograme LANGUAGES C CXX)
+project(opengl_quickstart LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(PROJECT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
-set(LOCAL_LIBRARIES_DIR "${PROJECT_ROOT}/Libraries")
-set(LOCAL_INCLUDE_DIR "${LOCAL_LIBRARIES_DIR}/include")
+set(QS_ROOT "${CMAKE_CURRENT_SOURCE_DIR}")
+set(QS_LIBRARIES_DIR "${QS_ROOT}/Libraries")
+set(QS_INCLUDE_DIR "${QS_LIBRARIES_DIR}/include")
 
 if(WIN32)
-    set(LOCAL_LIB_DIR "${LOCAL_LIBRARIES_DIR}/lib_win/lib")
+    set(QS_LIB_DIR "${QS_LIBRARIES_DIR}/lib_win/lib")
 elseif(UNIX)
-    set(LOCAL_LIB_DIR "${LOCAL_LIBRARIES_DIR}/lib_linux/lib")
+    set(QS_LIB_DIR "${QS_LIBRARIES_DIR}/lib_linux/lib")
 else()
     message(FATAL_ERROR "Unsupported platform for local library layout.")
 endif()
 
-if(NOT EXISTS "${LOCAL_INCLUDE_DIR}" OR NOT EXISTS "${LOCAL_LIB_DIR}")
+if(NOT EXISTS "${QS_INCLUDE_DIR}" OR NOT EXISTS "${QS_LIB_DIR}")
     message(FATAL_ERROR "Expected local SDK folders at Libraries/include and platform-specific lib directory.")
 endif()
 
-add_executable(fluxograme
-    main.cpp
-    camera.cpp
-    EBO.cpp
-    gameObject.cpp
-    Mesh.cpp
-    point.cpp
-    RoundedCorner2D.cpp
-    Resources.cpp
-    shaderClass.cpp
-    texture.cpp
-    VAO.cpp
-    VBO.cpp
-    glad.c
+# ---------------------------------------------------------------------------
+# opengl_quickstart: the engine layer apps link against.
+# Must stay STATIC: core/Window.cpp carries the dedicated-GPU exports that only
+# work from inside the .exe.
+# ---------------------------------------------------------------------------
+add_library(opengl_quickstart STATIC
+    src/glad.c
+    src/core/Window.cpp
+    src/render/camera.cpp
+    src/render/EBO.cpp
+    src/render/Framebuffer.cpp
+    src/render/Mesh.cpp
+    src/render/point.cpp
+    src/render/RoundedCorner2D.cpp
+    src/render/shaderClass.cpp
+    src/render/texture.cpp
+    src/render/VAO.cpp
+    src/render/VBO.cpp
+    src/util/DebugHooks.cpp
+    src/util/mathUtils.cpp
 )
+add_library(opengl_quickstart::opengl_quickstart ALIAS opengl_quickstart)
 
-target_include_directories(fluxograme
-    PRIVATE
-        "${PROJECT_ROOT}"
-        "${LOCAL_INCLUDE_DIR}"
+target_include_directories(opengl_quickstart
+    PUBLIC
+        "${QS_ROOT}/src"
+        "${QS_INCLUDE_DIR}"
 )
 
 if(WIN32)
-    set(SDL3_LIBRARY "${LOCAL_LIB_DIR}/SDL3.lib")
-    set(SDL3_IMAGE_LIBRARY "${LOCAL_LIB_DIR}/SDL3_image.lib")
+    set(SDL3_LIBRARY "${QS_LIB_DIR}/SDL3.lib")
+    set(SDL3_IMAGE_LIBRARY "${QS_LIB_DIR}/SDL3_image.lib")
 else()
-    find_library(SDL3_LIBRARY NAMES SDL3 PATHS "${LOCAL_LIB_DIR}" NO_DEFAULT_PATH)
-    find_library(SDL3_IMAGE_LIBRARY NAMES SDL3_image PATHS "${LOCAL_LIB_DIR}" NO_DEFAULT_PATH)
+    find_library(SDL3_LIBRARY NAMES SDL3 PATHS "${QS_LIB_DIR}" NO_DEFAULT_PATH)
+    find_library(SDL3_IMAGE_LIBRARY NAMES SDL3_image PATHS "${QS_LIB_DIR}" NO_DEFAULT_PATH)
 endif()
 
 if(NOT SDL3_LIBRARY)
-    message(FATAL_ERROR "Could not find SDL3 library in ${LOCAL_LIB_DIR}.")
+    message(FATAL_ERROR "Could not find SDL3 library in ${QS_LIB_DIR}.")
 endif()
 if(NOT SDL3_IMAGE_LIBRARY)
-    message(FATAL_ERROR "Could not find SDL3_image library in ${LOCAL_LIB_DIR}.")
+    message(FATAL_ERROR "Could not find SDL3_image library in ${QS_LIB_DIR}.")
 endif()
 
-target_link_libraries(fluxograme PRIVATE "${SDL3_LIBRARY}" "${SDL3_IMAGE_LIBRARY}")
-
-# DEBUG enables DebugLog.h macros (DBG / MDBG); only on Debug to keep Release binaries quiet.
-target_compile_definitions(fluxograme PRIVATE $<$<CONFIG:Debug>:DEBUG>)
+target_link_libraries(opengl_quickstart PUBLIC "${SDL3_LIBRARY}" "${SDL3_IMAGE_LIBRARY}")
 
 if(WIN32)
-    target_link_libraries(fluxograme PRIVATE opengl32)
-    add_custom_command(TARGET fluxograme POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${LOCAL_LIB_DIR}/SDL3.dll"
-            "$<TARGET_FILE_DIR:fluxograme>/SDL3.dll"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${LOCAL_LIB_DIR}/SDL3_image.dll"
-            "$<TARGET_FILE_DIR:fluxograme>/SDL3_image.dll"
-    )
+    target_link_libraries(opengl_quickstart PUBLIC opengl32)
 else()
-    target_link_directories(fluxograme PRIVATE "${LOCAL_LIB_DIR}")
-    target_link_libraries(fluxograme PRIVATE GL dl m)
+    target_link_libraries(opengl_quickstart PUBLIC GL dl m)
+endif()
 
-    # Let the executable resolve SDL shared objects from the local project libs.
-    set_target_properties(fluxograme PROPERTIES
-        BUILD_RPATH "${LOCAL_LIB_DIR}"
-        INSTALL_RPATH "$ORIGIN/../Libraries/lib_linux/lib"
+target_compile_definitions(opengl_quickstart
+    PUBLIC
+        # DEBUG enables DebugLog.h macros (DBG / MDBG); only on Debug to keep Release binaries quiet.
+        $<$<CONFIG:Debug>:DEBUG>
+        # absolute path, with trailing slash, to the stock shaders: Shader(QS_SHADER_DIR "default.vert", ...)
+        QS_SHADER_DIR="${QS_ROOT}/shaders/"
+)
+
+# Call on every executable that links opengl_quickstart, so it finds the SDL
+# shared libraries at runtime (DLL copy on Windows, rpath on Linux).
+function(quickstart_setup_executable target)
+    if(WIN32)
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${QS_LIB_DIR}/SDL3.dll"
+                "$<TARGET_FILE_DIR:${target}>/SDL3.dll"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${QS_LIB_DIR}/SDL3_image.dll"
+                "$<TARGET_FILE_DIR:${target}>/SDL3_image.dll"
+        )
+    else()
+        set_target_properties(${target} PROPERTIES BUILD_RPATH "${QS_LIB_DIR}")
+    endif()
+endfunction()
+
+# ---------------------------------------------------------------------------
+# Example app: only when this repo is the top-level project, not when it's
+# pulled in with add_subdirectory.
+# ---------------------------------------------------------------------------
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    add_executable(opengl_quickstart_example
+        example/main.cpp
+        example/gameObject.cpp
+        example/Resources.cpp
     )
+    target_include_directories(opengl_quickstart_example PRIVATE "${QS_ROOT}/example")
+    target_link_libraries(opengl_quickstart_example PRIVATE opengl_quickstart)
+    quickstart_setup_executable(opengl_quickstart_example)
 endif()

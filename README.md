@@ -1,6 +1,8 @@
-# fluxograme
+# opengl-quickstart
 
 A **plug-and-play C++20 / OpenGL 3.3 Core quickstart** that builds and runs on **Linux and Windows** right after `git clone` — no system-wide library installs required. All third-party headers and pre-built binaries live inside `Libraries/`.
+
+It is two things: a static library (`opengl_quickstart`) that apps pull in as a git submodule, and a small example app that shows how to use it. See [Use as a package](#use-as-a-package).
 
 ## Stack
 
@@ -28,10 +30,10 @@ cmake --build build
 Run from the project root (shaders are loaded relative to the working directory):
 
 ```bash
-./build/fluxograme
+./build/opengl_quickstart_example
 ```
 
-Or use the helper script (builds then runs under GDB for a crash backtrace):
+Or use the helper script (builds, then runs the example under GDB for a crash backtrace):
 
 ```bash
 ./run.sh
@@ -57,10 +59,10 @@ The `DEBUG` macro (and all `DebugLog.h` output) is enabled only in **Debug** bui
 
 ### GPU selection (hybrid-graphics laptops)
 
-On laptops with an integrated and a dedicated GPU, `main.cpp` asks for the **dedicated** one:
+On laptops with an integrated and a dedicated GPU, `initialize()` (`src/core/Window.cpp`) asks for the **dedicated** one:
 
 - **Windows:** exports `NvOptimusEnablement` / `AmdPowerXpressRequestHighPerformance` from the exe. Windows Graphics Settings can still override this per app.
-- **Linux:** before `SDL_Init`, sets `__NV_PRIME_RENDER_OFFLOAD=1` + `__GLX_VENDOR_LIBRARY_NAME=nvidia` (NVIDIA proprietary driver) or `DRI_PRIME=1` (Mesa). This is skipped on single-GPU machines and whenever you already set one of these variables yourself. `DRI_PRIME=0 ./build/fluxograme` forces the integrated GPU.
+- **Linux:** before `SDL_Init`, sets `__NV_PRIME_RENDER_OFFLOAD=1` + `__GLX_VENDOR_LIBRARY_NAME=nvidia` (NVIDIA proprietary driver) or `DRI_PRIME=1` (Mesa). This is skipped on single-GPU machines and whenever you already set one of these variables yourself. `DRI_PRIME=0 ./build/opengl_quickstart_example` forces the integrated GPU.
 - **macOS:** nothing needed. OpenGL apps already run on the dedicated GPU there.
 
 If the dedicated GPU can't create a context, startup retries once on the default GPU. The chosen renderer is printed at startup (`OpenGL renderer: ...`).
@@ -74,51 +76,95 @@ If the dedicated GPU can't create a context, startup retries once on the default
 | **W / S** | Move camera forward / back (Z axis) |
 | **A / D** | Move camera left / right (X axis) |
 | **Q / E** | Move camera up / down (Y axis) |
+| **F12** | Save the current frame to `screenshot.png` |
+
+### Debug env vars (example app)
+
+| Variable | Effect |
+|---|---|
+| `QS_CAMERA=x,y,z[,yaw,pitch]` | Place the camera at startup (`applyCameraOverride`) |
+| `QS_SHOT=<path>` | Render for `QS_SHOT_AFTER` seconds (default 2), save one PNG, exit (`saveScreenshot`) |
 
 ## Repository layout
 
 ```
-fluxograme/
-├── main.cpp              # Entry: init, main loop, cleanup
-├── GameState.h           # SDLState (window+context bundle) + GameState (scene objects, FPS)
-├── Resources.h/.cpp      # Central GPU asset store (shaders, meshes, textures, lights, UBO)
+opengl-quickstart/
+├── CMakeLists.txt        # opengl_quickstart library + example (example only when top-level)
+├── src/                  # the package: include root, so headers are "render/Mesh.h", "util/DebugLog.h", ...
+│   ├── glad.c            # GLAD loader: do not edit unless regenerating
+│   ├── core/
+│   │   └── Window.h/.cpp # SDLState, WindowOptions, initialize/cleanup, dedicated-GPU selection
+│   ├── render/
+│   │   ├── Mesh.h/.cpp           # VAO+VBO+EBO geometry, instanced draw, normal generation, updateVertices
+│   │   ├── VAO/VBO/EBO.h/.cpp    # buffer object wrappers (Vertex lives in VBO.h)
+│   │   ├── shaderClass.h/.cpp    # compile/link GLSL; expands `#include "file"` in shaders
+│   │   ├── texture.h/.cpp        # 2-D texture loading via SDL_image
+│   │   ├── camera.h/.cpp         # FPS-style camera: perspective or ortho proj*view, shader upload
+│   │   ├── Framebuffer.h/.cpp    # offscreen render target + ScreenCapture (copy of the drawn frame)
+│   │   ├── Light.h               # CPU mirror of GLSL Light struct (std140)
+│   │   ├── animation.h           # sprite-sheet grid animator (UV offset per frame)
+│   │   ├── point.h/.cpp          # GL_POINTS helper (separate pipeline)
+│   │   └── RoundedCorner2D.h/.cpp # round a triangle-mesh corner in 2D
+│   └── util/
+│       ├── DebugLog.h            # zero-cost debug logging macros (see below)
+│       ├── DebugHooks.h/.cpp     # saveScreenshot, applyCameraOverride
+│       ├── Timer.h               # interval flag used by FPS counter and Animation
+│       ├── StdAliases.h          # stdMat<T>, stdCube<T>, arrVec<T,N>, ...
+│       └── mathUtils.h/.cpp      # dsin / dcos (degrees)
 │
-├── Mesh.h/.cpp           # VAO+VBO+EBO geometry, instanced draw, normal generation
-├── VAO.h/.cpp            # Vertex Array Object wrapper
-├── VBO.h/.cpp            # Vertex Buffer Object wrapper
-├── EBO.h/.cpp            # Element Buffer Object wrapper
-├── shaderClass.h/.cpp    # Compile/link GLSL stages into a program object
-├── texture.h/.cpp        # 2-D texture loading via SDL_image
+├── shaders/              # stock shaders, found at runtime through QS_SHADER_DIR
+│   ├── default.vert/.frag  # main mesh pipeline (instancing, lighting, mask alpha)
+│   └── point.vert/.frag    # GL_POINTS pipeline
 │
-├── camera.h/.cpp         # FPS-style camera: yaw/pitch, proj*view matrix, shader upload
-├── gameObject.h/.cpp     # Logical entity: indexes a Mesh in Resources + own transform
-├── Light.h               # CPU mirror of GLSL Light struct (std140)
-├── animation.h           # Sprite-sheet grid animator (UV offset per frame)
-├── Timer.h               # Interval flag used by FPS counter and Animation
-├── point.h/.cpp          # GL_POINTS helper (separate pipeline)
-├── RoundedCorner2D.h/.cpp # Mesh utility: round a triangle-mesh corner in 2D
+├── example/              # app-level template: copy these into a new project and grow them
+│   ├── main.cpp          # init, main loop, cleanup
+│   ├── GameState.h       # scene objects, FPS
+│   ├── Resources.h/.cpp  # central GPU asset store (shaders, meshes, textures, lights, UBO)
+│   ├── gameObject.h/.cpp # logical entity: indexes a Mesh in Resources + own transform
+│   └── Textures/         # sample textures
 │
-├── DebugLog.h            # Zero-cost debug logging macros (see section below)
-│
-├── default.vert/.frag    # Main mesh pipeline (instancing, lighting, mask alpha)
-├── point.vert/.frag      # GL_POINTS pipeline
-│
-├── glad.c                # GLAD loader — do not edit unless regenerating
+├── tests/                # standalone RoundedCorner2D tests (run_tests.sh)
 ├── Libraries/
-│   ├── include/          # GLAD, GLM, SDL3, SDL3_image headers
+│   ├── include/          # GLAD, GLM, SDL3, SDL3_image, stb headers
 │   ├── lib_linux/lib/    # Linux shared objects
 │   └── lib_win/lib/      # Windows import libs + DLLs
-│
-├── Textures/             # Sample textures (block.png, no-mask.png)
-└── run.sh                # Build + run under GDB (Linux only)
+└── run.sh                # build + run the example under GDB (Linux only)
 ```
+
+## Use as a package
+
+Add the repo as a submodule and link the library. Everything (headers, SDL, GLM, GL, the `DEBUG` define on Debug builds) comes through the target.
+
+```bash
+git submodule add git@github.com:GatoMonocromatico/opengl-quickstart.git external/opengl-quickstart
+```
+
+```cmake
+add_subdirectory(external/opengl-quickstart)
+
+add_executable(my_app src/main.cpp ...)
+target_link_libraries(my_app PRIVATE opengl_quickstart)
+quickstart_setup_executable(my_app)   # copies SDL DLLs (Windows) / sets rpath (Linux)
+```
+
+```cpp
+#include "core/Window.h"
+#include "render/Mesh.h"
+
+SDLState state = initialize(1280, 720, { .title = "My App", .resizable = false, .vsync = false });
+Shader shader(QS_SHADER_DIR "default.vert", "assets/shaders/my.frag");
+```
+
+- `QS_SHADER_DIR` is the absolute path (trailing slash) to `shaders/`. Use the stock shaders from there, or ship your own and load them relative to the working dir.
+- `example/` is not part of the library. Your app owns its `main.cpp`, `Resources`, `GameState` and `GameObject`.
+- Keep the library static: the Windows dedicated-GPU exports in `core/Window.cpp` only work from inside the executable.
 
 ## Adding your own geometry
 
 1. **Define vertices and indices** — `Vertex` is declared in `VBO.h` (position, texcoord, mask texcoord, normal, instance offset, luminance).
-2. **Populate `Resources::load()`** in `Resources.cpp` — upload meshes, load textures, set up lights, create the UBO.
+2. **Populate `Resources::load()`** in `example/Resources.cpp` — upload meshes, load textures, set up lights, create the UBO.
 3. **Add a `GameObject`** to `GameState::scenarioObjects` pointing at your mesh index.
-4. **Call `Draw`** in the main loop (see `gs.scenarioObjects[0].Draw(...)` in `main.cpp`).
+4. **Call `Draw`** in the main loop (see `gs.scenarioObjects[0].Draw(...)` in `example/main.cpp`).
 
 ### Shader uniforms expected by `default.vert` / `default.frag`
 
@@ -205,16 +251,15 @@ Prints: `[camera.cpp] angle=−90.000000 | pitch=0.000000`
 
 #### `DBG_IF(cond, ...)` / `MDBG_IF(cond, ...)` — runtime-gated output
 
-Same signatures as `DBG` and `MDBG` but only emit when `cond` is true. Use this to flip logging on or off for a specific function or block without touching the global `DEBUG` flag.
+Same signatures as `DBG` and `MDBG` but only emit when `cond` is true.
+
+Everything in the package gates on one global switch, `flux::verbose` (default `true`). Flip it once at startup to silence or re-enable all of it:
 
 ```cpp
-void buildMesh(bool verbose = false)
-{
-    DBG_IF(verbose, "enter buildMesh");
-    DBG_IF(verbose, "vertexCount", verts.size());
+flux::verbose = false;
 
-    MDBG_IF(verbose, DBG_N("min", aabb.min), DBG_N("max", aabb.max));
-}
+DBG_IF(flux::verbose, "vertexCount", verts.size());
+MDBG_IF(flux::verbose, DBG_N("min", aabb.min), DBG_N("max", aabb.max));
 ```
 
 The condition is evaluated at runtime only in Debug builds. In Release both macros expand to `((void)0)` — the condition is never evaluated and the call compiles out entirely.
