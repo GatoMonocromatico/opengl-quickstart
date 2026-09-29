@@ -262,13 +262,14 @@ int main(int argc, char* argv[])
 		prevTime = nowTime;
 	}
 
-	cleanup(state);
 	for (Mesh& mesh : res.meshs)
 	{
 		mesh.Delete();
 	}
 	res.shaderProgram[0].Delete();
 	res.shaderProgram[1].Delete();
+	// the GL deletes above need the context, so it goes last
+	cleanup(state);
 
 	return 0;
 }
