@@ -55,6 +55,16 @@ cmake --build build-release
 
 The `DEBUG` macro (and all `DebugLog.h` output) is enabled only in **Debug** builds; Release compiles it out completely.
 
+### GPU selection (hybrid-graphics laptops)
+
+On laptops with an integrated and a dedicated GPU, `main.cpp` asks for the **dedicated** one:
+
+- **Windows:** exports `NvOptimusEnablement` / `AmdPowerXpressRequestHighPerformance` from the exe. Windows Graphics Settings can still override this per app.
+- **Linux:** before `SDL_Init`, sets `__NV_PRIME_RENDER_OFFLOAD=1` + `__GLX_VENDOR_LIBRARY_NAME=nvidia` (NVIDIA proprietary driver) or `DRI_PRIME=1` (Mesa). This is skipped on single-GPU machines and whenever you already set one of these variables yourself. `DRI_PRIME=0 ./build/fluxograme` forces the integrated GPU.
+- **macOS:** nothing needed. OpenGL apps already run on the dedicated GPU there.
+
+If the dedicated GPU can't create a context, startup retries once on the default GPU. The chosen renderer is printed at startup (`OpenGL renderer: ...`).
+
 ## Controls
 
 | Input | Action |

@@ -19,6 +19,12 @@
 #include <iostream>
 #include <ctime>
 #include <algorithm>
+#include <cstdlib>
+#ifdef __linux__
+#include <filesystem>
+#include <fstream>
+#include <system_error>
+#endif
 
 #include "Timer.h"
 #include <cmath>
@@ -37,6 +43,89 @@ bool moveCamera = false;
 
 SDLState initialize(int width, int height);
 void cleanup(SDLState& state);
+
+// -----------------------------------------------------------------------------
+// Dedicated GPU preference (hybrid-graphics laptops)
+// -----------------------------------------------------------------------------
+// A laptop with an integrated and a dedicated GPU renders on the integrated one
+// unless the app asks otherwise. Each OS has its own way of asking:
+//   * Windows: the NVIDIA Optimus and AMD PowerXpress drivers look for these two
+//     exported symbols in the .exe. They must live in the executable (not a DLL)
+//     and keep these exact names. The per-app choice in Windows Graphics
+//     Settings still overrides them.
+//   * Linux: PRIME render offload is driven by environment variables the GL
+//     driver reads when the context is created -- see preferDedicatedGpu().
+//   * macOS: nothing to do. An OpenGL app that does not opt into automatic
+//     graphics switching in its Info.plist already runs on the dedicated GPU.
+#ifdef _WIN32
+extern "C" {
+	__declspec(dllexport) unsigned long NvOptimusEnablement = 0x00000001;
+	__declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+}
+#endif
+
+#ifdef __linux__
+// Counts PCI display controllers (class 0x03xxxx). Reading sysfs instead of
+// /dev/dri keeps the count independent of which kernel modules are loaded.
+static int countDisplayControllers()
+{
+	int count = 0;
+	std::error_code ec;
+	for (const auto& dev : std::filesystem::directory_iterator("/sys/bus/pci/devices", ec))
+	{
+		std::ifstream classFile(dev.path() / "class");
+		std::string pciClass;
+		if (classFile >> pciClass && pciClass.rfind("0x03", 0) == 0)
+			count++;
+	}
+	return count;
+}
+#endif
+
+// Sets the environment variables that route OpenGL to the dedicated GPU, before
+// SDL loads the GL driver. Returns the names it set so they can be undone if the
+// dedicated GPU fails to produce a context; empty when nothing was changed.
+static std::vector<const char*> preferDedicatedGpu()
+{
+	std::vector<const char*> applied;
+#ifdef __linux__
+	// The user already chose a GPU (launched through prime-run, or DRI_PRIME=0 to
+	// force the integrated one): respect it.
+	if (std::getenv("__NV_PRIME_RENDER_OFFLOAD") || std::getenv("__GLX_VENDOR_LIBRARY_NAME") || std::getenv("DRI_PRIME"))
+		return applied;
+
+	// Single-GPU machine: nothing to choose between.
+	if (countDisplayControllers() < 2)
+		return applied;
+
+	std::error_code ec;
+	if (std::filesystem::exists("/proc/driver/nvidia/version", ec))
+	{
+		// NVIDIA proprietary driver: PRIME render offload. Forcing the GLX vendor
+		// breaks context creation when that driver is absent, hence the /proc check.
+		setenv("__NV_PRIME_RENDER_OFFLOAD", "1", 1);
+		setenv("__GLX_VENDOR_LIBRARY_NAME", "nvidia", 1);
+		applied = { "__NV_PRIME_RENDER_OFFLOAD", "__GLX_VENDOR_LIBRARY_NAME" };
+	}
+	else
+	{
+		// Mesa drivers (AMD, Intel Arc, nouveau): DRI_PRIME=1 selects the GPU that
+		// is not driving the display.
+		setenv("DRI_PRIME", "1", 1);
+		applied = { "DRI_PRIME" };
+	}
+#endif
+	return applied;
+}
+
+static void clearGpuPreference(const std::vector<const char*>& applied)
+{
+#ifdef __linux__
+	for (const char* name : applied) unsetenv(name);
+#else
+	(void)applied;
+#endif
+}
 
 static void GLAPIENTRY glDebugOutput(
 	GLenum source,
@@ -267,14 +356,19 @@ int main(int argc, char* argv[])
 	return 0;
 }
 
-SDLState initialize(int width, int height)
+// One attempt at SDL + window + GL context. Stops at the first failure and
+// releases everything created so far. reportErrors=false keeps the error dialog
+// closed for an attempt that initialize() is going to retry.
+static SDLState createWindowAndContext(int width, int height, bool reportErrors)
 {
 	SDL_Window* window = nullptr;
 	SDL_GLContext context = nullptr;
 	auto fail = [&](const std::string& where) {
 		std::string msg = where + ": " + SDL_GetError();
 		std::cerr << msg << std::endl;
-		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Initialization Error", msg.c_str(), nullptr);
+		if (reportErrors) {
+			SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Initialization Error", msg.c_str(), nullptr);
+		}
 		if (context) {
 			SDL_GL_DestroyContext(context);
 			context = nullptr;
@@ -331,6 +425,12 @@ SDLState initialize(int width, int height)
 	if (!gladLoadGLLoader((GLADloadproc)SDL_GL_GetProcAddress)) {
 		return fail("gladLoadGLLoader failed");
 	}
+
+	// Which GPU actually got the context -- the quickest check that the
+	// dedicated-GPU preference worked.
+	std::cout << "OpenGL renderer: " << reinterpret_cast<const char*>(glGetString(GL_RENDERER))
+		<< " | vendor: " << reinterpret_cast<const char*>(glGetString(GL_VENDOR))
+		<< " | version: " << reinterpret_cast<const char*>(glGetString(GL_VERSION)) << std::endl;
 	MDBG("phase", "gladLoadGLLoader completed (OpenGL entry points ready)");
 
 	// GL_BLEND: alpha transparency; GL_DEPTH_TEST: near fragments win; GL_PROGRAM_POINT_SIZE: allow gl_PointSize in shaders.
@@ -356,6 +456,25 @@ SDLState initialize(int width, int height)
 // #endif
 
 	SDLState state(drawableW, drawableH, width, height, window, context, true);
+
+	return state;
+}
+
+SDLState initialize(int width, int height)
+{
+	// Must run before SDL_Init: the GL driver reads these when the context is created.
+	std::vector<const char*> gpuPreference = preferDedicatedGpu();
+
+	SDLState state = createWindowAndContext(width, height, gpuPreference.empty());
+	if (!state.successfullyInitialized && !gpuPreference.empty())
+	{
+		// The dedicated GPU was requested but couldn't produce a context (e.g. the
+		// driver is installed but offload isn't configured). Running on the
+		// integrated GPU beats not running at all.
+		std::cerr << "Dedicated GPU unavailable, retrying on the default GPU" << std::endl;
+		clearGpuPreference(gpuPreference);
+		state = createWindowAndContext(width, height, true);
+	}
 
 	return state;
 }

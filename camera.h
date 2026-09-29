@@ -32,6 +32,10 @@ public:
 		position(position)
 	{
 	};
+	Camera(double x, double y, double z) :
+		position(glm::vec3(x, y, z))
+	{
+	};
 	Camera() :
 		position(glm::vec3(0.0f, 0.0f, 50.0f))
 	{
