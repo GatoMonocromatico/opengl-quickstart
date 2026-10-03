@@ -21,11 +21,11 @@ Mesh::Mesh(const std::vector<Vertex>& verts, const std::vector<GLuint>& indxs, s
 
 	// Vertex layout must match struct Vertex and default.vert attribute locations (stride = sizeof(Vertex)).
 	VAO1.LinkAttrib(VBO1, 0, 3, GL_FLOAT, sizeof(Vertex), (void*)0);                          // position
-	VAO1.LinkAttrib(VBO1, 1, 3, GL_FLOAT, sizeof(Vertex), (void*)(3 * sizeof(float)));         // color
-	VAO1.LinkAttrib(VBO1, 2, 2, GL_FLOAT, sizeof(Vertex), (void*)(6 * sizeof(float)));         // diffuse UV
-	VAO1.LinkAttrib(VBO1, 3, 2, GL_FLOAT, sizeof(Vertex), (void*)(8 * sizeof(float)));         // mask UV
-	VAO1.LinkAttrib(VBO1, 4, 3, GL_FLOAT, sizeof(Vertex), (void*)(10 * sizeof(float)));        // normal
-	VAO1.LinkAttrib(VBO1, 7, 1, GL_FLOAT, sizeof(Vertex), (void*)(13 * sizeof(float)));       // naturalLuminence (per-vertex scalar)
+	VAO1.LinkAttrib(VBO1, 1, 4, GL_FLOAT, sizeof(Vertex), (void*)(3 * sizeof(float)));         // color
+	VAO1.LinkAttrib(VBO1, 2, 2, GL_FLOAT, sizeof(Vertex), (void*)(7 * sizeof(float)));         // diffuse UV
+	VAO1.LinkAttrib(VBO1, 3, 2, GL_FLOAT, sizeof(Vertex), (void*)(9 * sizeof(float)));         // mask UV
+	VAO1.LinkAttrib(VBO1, 4, 3, GL_FLOAT, sizeof(Vertex), (void*)(11 * sizeof(float)));        // normal
+	VAO1.LinkAttrib(VBO1, 7, 1, GL_FLOAT, sizeof(Vertex), (void*)(14 * sizeof(float)));       // naturalLuminence (per-vertex scalar)
 
 	// Placeholder per-instance data; updateInstanceVBO can stream real offsets each frame.
 	VBOInstances.createVBO(std::vector<float>{0.0f, 0.0f, 0.0f, 0.0f, 0.0f});

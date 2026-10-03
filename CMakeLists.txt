@@ -37,6 +37,7 @@ add_library(opengl_quickstart STATIC
     src/render/point.cpp
     src/render/RoundedCorner2D.cpp
     src/render/shaderClass.cpp
+    src/render/Text.cpp
     src/render/texture.cpp
     src/render/VAO.cpp
     src/render/VBO.cpp

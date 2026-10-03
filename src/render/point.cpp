@@ -29,11 +29,11 @@ Point::Point(std::vector<Vertex>& verts, glm::vec3 model) :
 
 	// Same stride/offsets as Mesh so one mental model for attribute packing.
 	VAO1.LinkAttrib(VBO1, 0, 3, GL_FLOAT, sizeof(Vertex), (void*)0);
-	VAO1.LinkAttrib(VBO1, 1, 3, GL_FLOAT, sizeof(Vertex), (void*)(3 * sizeof(float)));
-	VAO1.LinkAttrib(VBO1, 2, 2, GL_FLOAT, sizeof(Vertex), (void*)(6 * sizeof(float)));
-	VAO1.LinkAttrib(VBO1, 3, 2, GL_FLOAT, sizeof(Vertex), (void*)(8 * sizeof(float)));
-	VAO1.LinkAttrib(VBO1, 4, 3, GL_FLOAT, sizeof(Vertex), (void*)(10 * sizeof(float)));
-	VAO1.LinkAttrib(VBO1, 7, 1, GL_FLOAT, sizeof(Vertex), (void*)(13 * sizeof(float)));
+	VAO1.LinkAttrib(VBO1, 1, 4, GL_FLOAT, sizeof(Vertex), (void*)(3 * sizeof(float)));
+	VAO1.LinkAttrib(VBO1, 2, 2, GL_FLOAT, sizeof(Vertex), (void*)(7 * sizeof(float)));
+	VAO1.LinkAttrib(VBO1, 3, 2, GL_FLOAT, sizeof(Vertex), (void*)(9 * sizeof(float)));
+	VAO1.LinkAttrib(VBO1, 4, 3, GL_FLOAT, sizeof(Vertex), (void*)(11 * sizeof(float)));
+	VAO1.LinkAttrib(VBO1, 7, 1, GL_FLOAT, sizeof(Vertex), (void*)(14 * sizeof(float)));
 
 	VBOInstances.createVBO(std::vector<float>{0.0f, 0.0f, 0.0f, 0.0f, 0.0f});
 

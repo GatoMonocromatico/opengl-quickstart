@@ -101,10 +101,10 @@ void Resources::load()
 	// --- Vertices (must match layout in Mesh constructor / default.vert locations) ---
 	verts.push_back(std::vector<Vertex>{
 		// position              color (often unused if textured)   diffuse UV   mask UV       normal (filled further by Mesh::createNormals)   per-vertex "glow" scalar
-		Vertex{ glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec2(0.0f, 0.0f), glm::vec2(0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), 1.0f },
-		Vertex{ glm::vec3(50.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec2(0.0f, 1.0f), glm::vec2(0.0f, 1.0f), glm::vec3(0.0f, 0.0f, 0.0f), 1.0f },
-		Vertex{ glm::vec3(50.0f, 50.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec2(1.0f, 1.0f), glm::vec2(1.0f, 1.0f), glm::vec3(0.0f, 0.0f, 0.0f), 1.0f },
-		Vertex{ glm::vec3(0.0f, 50.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), 1.0f },
+		Vertex{ glm::vec3(0.0f, 0.0f, 0.0f), glm::vec4(0.0f, 0.0f, 0.0f, 0.0f), glm::vec2(0.0f, 0.0f), glm::vec2(0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), 1.0f },
+		Vertex{ glm::vec3(50.0f, 0.0f, 0.0f), glm::vec4(0.0f, 0.0f, 0.0f, 0.0f), glm::vec2(0.0f, 1.0f), glm::vec2(0.0f, 1.0f), glm::vec3(0.0f, 0.0f, 0.0f), 1.0f },
+		Vertex{ glm::vec3(50.0f, 50.0f, 0.0f), glm::vec4(0.0f, 0.0f, 0.0f, 0.0f), glm::vec2(1.0f, 1.0f), glm::vec2(1.0f, 1.0f), glm::vec3(0.0f, 0.0f, 0.0f), 1.0f },
+		Vertex{ glm::vec3(0.0f, 50.0f, 0.0f), glm::vec4(0.0f, 0.0f, 0.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), 1.0f },
 	});
 	
 	// --- Indices: two triangles (CCW winding is typical for front faces) ---
@@ -130,7 +130,7 @@ void Resources::load()
 	/*
 	// --- Point primitive (uses point.vert / point.frag and GL_POINTS) ---
 	verts.push_back(std::vector<Vertex>{texture
-		Vertex{ glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec2(0.0f, 0.0f), glm::vec2(0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), 1.0f },
+		Vertex{ glm::vec3(0.0f, 0.0f, 0.0f), glm::vec4(0.0f, 0.0f, 0.0f, 0.0f), glm::vec2(0.0f, 0.0f), glm::vec2(0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 0.0f), 1.0f },
 	});
 	Point point = Point(verts[1]);
 	points.push_back(point);

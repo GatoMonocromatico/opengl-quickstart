@@ -13,6 +13,7 @@ It is two things: a static library (`opengl_quickstart`) that apps pull in as a 
 | **SDL3** | Window, events, OpenGL context, timing |
 | **SDL3_image** | PNG/JPG loading for `Texture` |
 | **GLM** | Vectors, matrices, `lookAt`, `perspective` |
+| **GlyphGL** | TrueType text for `Text` (header-only, MIT) |
 
 All headers are under `Libraries/include/`. Pre-built libraries live under `Libraries/lib_linux/lib/` (Linux) and `Libraries/lib_win/lib/` (Windows). CMake picks the right folder automatically.
 
@@ -125,7 +126,7 @@ opengl-quickstart/
 │
 ├── tests/                # standalone RoundedCorner2D tests (run_tests.sh)
 ├── Libraries/
-│   ├── include/          # GLAD, GLM, SDL3, SDL3_image, stb headers
+│   ├── include/          # GLAD, GLM, SDL3, SDL3_image, stb, GlyphGL headers
 │   ├── lib_linux/lib/    # Linux shared objects
 │   └── lib_win/lib/      # Windows import libs + DLLs
 └── run.sh                # build + run the example under GDB (Linux only)

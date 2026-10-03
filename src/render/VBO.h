@@ -14,7 +14,8 @@
 struct Vertex
 {
 	glm::vec3 position;
-	glm::vec3 color;
+	// rgba: alpha is how much the colour covers the texture, 0 leaves it alone
+	glm::vec4 color;
 	glm::vec2 diffuseUV;
 	glm::vec2 specularUV;
 	glm::vec3 normal;
@@ -22,7 +23,7 @@ struct Vertex
 	/*Vertex(glm::vec3 position, glm::vec3 normal, glm::vec2 texUV) :
 		position(position),
 		normal(normal),
-		color(glm::vec3(1.0f, 1.0f, 1.0f)),
+		color(glm::vec4(0.0f)),
 		texUV(texUV)
 	{}*/
 };

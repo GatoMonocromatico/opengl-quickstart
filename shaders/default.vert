@@ -6,6 +6,7 @@
 // attributes (5,6) advance once per instance when using instanced draw calls.
 
 layout (location = 0) in vec3 aPos;
+layout (location = 1) in vec4 aColor;
 layout (location = 2) in vec2 aTex;
 layout (location = 3) in vec2 aTexMask;
 layout (location = 4) in vec3 aNormal;
@@ -15,6 +16,7 @@ layout (location = 7) in float naturalLuminence;
 
 
 
+out vec4 vertexColor;
 out vec2 texCoord;
 out vec2 texCoordMask;
 out vec3 normal;
@@ -40,4 +42,5 @@ void main()
    // Normal matrix removes non-uniform scale from normals (inverse-transpose of upper 3x3).
    normal = mat3(transpose(inverse(model))) * aNormal;
    ambientLight = naturalLuminence;
+   vertexColor = aColor;
 }

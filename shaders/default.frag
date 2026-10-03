@@ -5,6 +5,7 @@
 // std140 blocks must match C++ Light layout and binding points set from CPU.
 
 out vec4 FragColor;
+in vec4 vertexColor;
 in vec2 texCoord;
 in vec2 texCoordMask;
 in vec3 normal;
@@ -78,5 +79,7 @@ void main()
 
    vec4 textureColor = texture(tex0, texCoord);
    float maskOpacity = texture(mask0, texCoordMask).a;
-   FragColor = vec4(textureColor.rgb * finalLight, textureColor.a * maskOpacity);
+   // the vertex colour covers the texture by its alpha, 0 leaves it alone
+   vec3 surface = mix(textureColor.rgb, vertexColor.rgb, clamp(vertexColor.a, 0.0, 1.0));
+   FragColor = vec4(surface * finalLight, textureColor.a * maskOpacity);
 }
