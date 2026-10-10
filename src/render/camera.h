@@ -26,7 +26,7 @@ public:
 	float pitch = 0.0f;
 	float yaw = -90.0f;
 
-	float sensitivity = 0.5f;
+	float sensitivity = 0.05f;
 
 	Camera(glm::vec3 position) :
 		position(position)

@@ -160,6 +160,10 @@ static SDLState createWindowAndContext(int width, int height, const WindowOption
 	SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, contextFlags);
 	// Depth buffer bit depth; required for glEnable(GL_DEPTH_TEST) to resolve occlusion correctly.
 	SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+	if (options.msaa > 0) {
+		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, options.msaa);
+	}
 
 	SDL_WindowFlags windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_HIGH_PIXEL_DENSITY;
 	if (options.resizable) windowFlags |= SDL_WINDOW_RESIZABLE;

@@ -37,6 +37,8 @@ struct WindowOptions
 	bool resizable = true;
 	// off leaves frame pacing to the app (e.g. a busy-wait fps limit)
 	bool vsync = true;
+	// samples per pixel on the window's framebuffer, 0 for no multisampling
+	int msaa = 0;
 };
 
 // On failure everything created so far is already released and
