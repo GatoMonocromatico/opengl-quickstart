@@ -84,7 +84,84 @@ If the dedicated GPU can't create a context, startup retries once on the default
 | Variable | Effect |
 |---|---|
 | `QS_CAMERA=x,y,z[,yaw,pitch]` | Place the camera at startup (`applyCameraOverride`) |
-| `QS_SHOT=<path>` | Render for `QS_SHOT_AFTER` seconds (default 2), save one PNG, exit (`saveScreenshot`) |
+| `QS_SHOT=<path>` | Render for `QS_SHOT_AFTER` seconds (default 2), save one PNG, exit (`saveScreenshot`); the widgets demo honours it too |
+
+### Window options
+
+`initialize(w, h, WindowOptions{...})`:
+
+| Field | Default | Effect |
+|---|---|---|
+| `title`, `resizable`, `vsync`, `msaa` | | as named |
+| `appId` | `nullptr` | SDL app id, set before `SDL_Init`: on X11 it is the `WM_CLASS` class (match it with an i3 `for_window [class="..."]` rule), on Wayland the `app_id` |
+| `borderless` | `false` | no title bar / decorations |
+| `alwaysOnTop` | `false` | keep above other windows (the WM may ignore it) |
+| `preferDedicatedGpu` | `true` | `false` skips the GPU selection above and stays on the default GPU, so a small always-running app doesn't wake the dedicated one |
+
+## Text charsets
+
+`Text` is drawn with GlyphGL in UTF-8 mode. `create()` takes a charset:
+
+```cpp
+Text text;
+text.create(QS_FONT_DIR "MesloLGSNerdFontMono-Regular.ttf", 18.0f, Text::Charset::Latin);
+```
+
+- `Charset::Ascii` (default): printable ASCII.
+- `Charset::Latin`: ASCII + Latin-1 Supplement + Latin Extended-A + `✓ ✗ → ← • … – — “ ” ‘ ’`. About 3x the glyphs, so a bigger atlas.
+
+The font must have the glyphs as simple (non-composite) outlines, GlyphGL skips composite ones. `MesloLGSNerdFontMono-Regular.ttf` has all of the Latin set. A codepoint that isn't in the charset is drawn and measured as `?`; control characters and malformed UTF-8 never crash, they draw nothing or `?`.
+
+Measuring for layout (all UTF-8 aware, byte offsets, `scale` like `draw`):
+
+- `width(s, scale)`: advance of the string.
+- `ascent(scale)` / `descent(scale)`: how far glyphs reach above / below the baseline; `lineHeight()` is the line pitch.
+- `indexAt(s, x, scale)`: byte offset of the caret boundary nearest x, never inside a UTF-8 sequence. Use it to turn a click into a caret.
+
+`util/Utf8.h` has the codepoint helpers (`utf8::next/prev/snap/count/valid/sanitize`).
+
+## UI widgets
+
+`src/ui/` is a small 2D layer. The pieces work on their own, so a custom canvas can use `Painter2D` + `Text` + `TextEdit` + `wrap` without any widgets.
+
+| Header | GL | What |
+|---|---|---|
+| `ui/Painter2D.h` | yes | batched rects, rounded rects, outlines, lines, circles in window pixels (top-left origin), `text()`, `pushClip/popClip`; own shader `shaders/ui2d.*` |
+| `ui/TextEdit.h` | no | UTF-8 string + caret + selection: insert, backspace/delete (Ctrl = word), arrows, home/end, up/down over wrapped lines, select all/word, cut/paste text in and out |
+| `ui/Wrap.h` | no | `wrap(text, maxWidth, measure)` -> line ranges (word wrap, long words broken, `\n` kept); `lineOfOffset`, `indexInLine(s)` |
+| `ui/Context.h` | yes | immediate-mode widgets, input, `Theme` |
+
+```cpp
+ui::Painter2D painter;  painter.create();
+Text font;              font.create(QS_FONT_DIR "MesloLGSNerdFontMono-Regular.ttf", 18, Text::Charset::Latin);
+ui::Context ui;         ui.init(painter, font);
+SDL_StartTextInput(state.window);
+
+while (running)
+{
+    SDL_Event e;
+    // event-driven: sleeps until input or a caret flip
+    if (SDL_WaitEventTimeout(&e, ui.waitTimeoutMs()))
+        do { ui.handleEvent(e); } while (SDL_PollEvent(&e));  // true = a text field wants that key
+    if (!ui.needsRedraw()) continue;
+
+    ui.beginFrame(state.width, state.height);          // drawable pixels
+    if (ui.button({10, 10, 120, 32}, "Save")) save();
+    ui.textField({10, 60, 400, 32}, "title", title);
+    ui.endFrame();
+    SDL_GL_SwapWindow(state.window);
+}
+```
+
+See `example/widgets.cpp` for a full loop.
+
+Widgets, all taking a pixel `Rect`: `button`, `checkbox`, `progressBar`, `textField` (single line, or `.multiline` with `.wrap`; caret, selection, mouse click / drag / double-click word / triple-click line, Ctrl+A/C/X/V, scrolls to the caret), `tabBar` (returns `clicked` / `closed` index), `label`, `beginScroll` / `endScroll`. Widgets are identified by their label or id string; `"Text##id"` shows `Text`, `pushId()` scopes ids in loops. `Theme` holds colors, padding, radius and font scale.
+
+Mouse helpers for custom widgets, the same ones the widgets use: `hovered(rect)`, `pressed`, `released`, `doubleClicked`, `mouseDown`, `dragDelta()`, `wheel()` / `consumeWheel()`, `pushClip/popClip` (clips hit-testing and drawing together).
+
+Notes: text color has no alpha (GlyphGL's shader takes rgb only). Mouse coordinates are converted to drawable pixels, so high-DPI works. `ui::Context` ignores everything it doesn't handle, the app keeps its own key handling (check `wantsKeyboard()` first).
+
+Demo: `./build/opengl_quickstart_widgets` (`QS_SHOT=<png>` saves a frame and exits, `QS_TAB=0|1|2` picks the tab). Tests for the non-GL parts: `tests/run_tests.sh` or `ctest` in the build dir (`ui_tests`).
 
 ## Repository layout
 
@@ -106,7 +183,13 @@ opengl-quickstart/
 │   │   ├── animation.h           # sprite-sheet grid animator (UV offset per frame)
 │   │   ├── point.h/.cpp          # GL_POINTS helper (separate pipeline)
 │   │   └── RoundedCorner2D.h/.cpp # round a triangle-mesh corner in 2D
+│   ├── ui/
+│   │   ├── Painter2D.h/.cpp      # batched 2D shapes + text + clip, shader in shaders/ui2d.*
+│   │   ├── TextEdit.h/.cpp       # caret/selection/edit model (no GL)
+│   │   ├── Wrap.h/.cpp           # word wrap over a measure function (no GL)
+│   │   └── Context.h/.cpp        # immediate-mode widgets, input, Theme
 │   └── util/
+│       ├── Utf8.h                # UTF-8 decode / step / validate helpers
 │       ├── DebugLog.h            # zero-cost debug logging macros (see below)
 │       ├── DebugHooks.h/.cpp     # saveScreenshot, applyCameraOverride
 │       ├── Timer.h               # interval flag used by FPS counter and Animation
@@ -115,18 +198,20 @@ opengl-quickstart/
 │
 ├── shaders/              # stock shaders, found at runtime through QS_SHADER_DIR
 │   ├── default.vert/.frag  # main mesh pipeline (instancing, lighting, mask alpha)
-│   └── point.vert/.frag    # GL_POINTS pipeline
+│   ├── point.vert/.frag    # GL_POINTS pipeline
+│   └── ui2d.vert/.frag     # Painter2D shapes
 │
 ├── fonts/                # bundled .ttf fonts for Text, found through QS_FONT_DIR (licenses in fonts/README.md)
 │
 ├── example/              # app-level template: copy these into a new project and grow them
 │   ├── main.cpp          # init, main loop, cleanup
+│   ├── widgets.cpp       # UI widgets demo (opengl_quickstart_widgets), event-driven loop
 │   ├── GameState.h       # scene objects, FPS
 │   ├── Resources.h/.cpp  # central GPU asset store (shaders, meshes, textures, lights, UBO)
 │   ├── gameObject.h/.cpp # logical entity: indexes a Mesh in Resources + own transform
 │   └── Textures/         # sample textures
 │
-├── tests/                # standalone RoundedCorner2D tests (run_tests.sh)
+├── tests/                # RoundedCorner2D tests (test.cpp) and ui_tests.cpp (Utf8, Wrap, TextEdit); run_tests.sh builds and runs both
 ├── Libraries/
 │   ├── include/          # GLAD, GLM, SDL3, SDL3_image, stb, GlyphGL headers
 │   ├── lib_linux/lib/    # Linux shared objects
