@@ -13,10 +13,12 @@ layout (location = 4) in vec3 aNormal;
 layout (location = 5) in vec3 aInstanceOffsetPos;
 layout (location = 6) in vec2 aInstanceOffsetTex;
 layout (location = 7) in float naturalLuminence;
+layout (location = 8) in float opacity;
 
 
 
 out vec4 vertexColor;
+out float dimming;
 out vec2 texCoord;
 out vec2 texCoordMask;
 out vec3 normal;
@@ -43,4 +45,5 @@ void main()
    normal = mat3(transpose(inverse(model))) * aNormal;
    ambientLight = naturalLuminence;
    vertexColor = aColor;
+   dimming = opacity;
 }

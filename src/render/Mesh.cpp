@@ -30,13 +30,11 @@ Mesh::Mesh(const std::vector<Vertex>& verts, const std::vector<GLuint>& indxs, s
 	// Placeholder per-instance data; updateInstanceVBO can stream real offsets each frame.
 	VBOInstances.createVBO(std::vector<float>{0.0f, 0.0f, 0.0f, 0.0f, 0.0f});
 
-	VAO1.LinkAttrib(VBOInstances, 5, 3, GL_FLOAT, 5 * sizeof(float), (void*)0);             // instance position offset
-	VAO1.LinkAttrib(VBOInstances, 6, 2, GL_FLOAT, 5 * sizeof(float), (void*)(3 * sizeof(float))); // instance UV offset
-
 	// Divisor 1: advance these attributes once per instance, not per vertex.
-	glVertexAttribDivisor(5, 1);
-	glVertexAttribDivisor(6, 1);
-
+	VAO1.LinkAttrib(VBOInstances, 5, 3, GL_FLOAT, 6 * sizeof(float), (void*)0, 1);             // instance position offset
+	VAO1.LinkAttrib(VBOInstances, 6, 2, GL_FLOAT, 6 * sizeof(float), (void*)(3 * sizeof(float)), 1); // instance UV offset
+	VAO1.LinkAttrib(VBOInstances, 8, 1, GL_FLOAT, 6 * sizeof(float), (void*)(5 * sizeof(float)), 1); // instance UV offset
+	
 	VAO1.Unbind();
 	VBO1.Unbind();
 	VBOInstances.Unbind();
