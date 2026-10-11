@@ -45,6 +45,9 @@ struct WindowOptions
 	const char* appId = nullptr;
 	bool borderless = false;
 	bool alwaysOnTop = false;
+	// ARGB window: whatever is cleared with alpha 0 shows the desktop behind it.
+	// Needs a compositor (picom) to look transparent, opaque black without one.
+	bool transparent = false;
 	// true asks hybrid-graphics laptops for the dedicated GPU (see the README);
 	// false stays on the default GPU, which keeps an always-running small app from
 	// waking the dedicated one

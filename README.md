@@ -96,6 +96,7 @@ If the dedicated GPU can't create a context, startup retries once on the default
 | `appId` | `nullptr` | SDL app id, set before `SDL_Init`: on X11 it is the `WM_CLASS` class (match it with an i3 `for_window [class="..."]` rule), on Wayland the `app_id` |
 | `borderless` | `false` | no title bar / decorations |
 | `alwaysOnTop` | `false` | keep above other windows (the WM may ignore it) |
+| `transparent` | `false` | ARGB window: pixels cleared with alpha 0 show the desktop (needs a compositor such as picom) |
 | `preferDedicatedGpu` | `true` | `false` skips the GPU selection above and stays on the default GPU, so a small always-running app doesn't wake the dedicated one |
 
 ## Text charsets
