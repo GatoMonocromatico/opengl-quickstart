@@ -39,6 +39,16 @@ struct WindowOptions
 	bool vsync = true;
 	// samples per pixel on the window's framebuffer, 0 for no multisampling
 	int msaa = 0;
+	// Sets SDL's app id before SDL_Init: on X11 it becomes the WM_CLASS (so a WM
+	// rule like i3's `for_window [class="..."]` can match), on Wayland the app_id.
+	// Null leaves SDL's default.
+	const char* appId = nullptr;
+	bool borderless = false;
+	bool alwaysOnTop = false;
+	// true asks hybrid-graphics laptops for the dedicated GPU (see the README);
+	// false stays on the default GPU, which keeps an always-running small app from
+	// waking the dedicated one
+	bool preferDedicatedGpu = true;
 };
 
 // On failure everything created so far is already released and

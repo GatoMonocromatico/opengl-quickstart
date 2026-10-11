@@ -141,6 +141,10 @@ static SDLState createWindowAndContext(int width, int height, const WindowOption
 		return SDLState(width, height, width, height, nullptr, nullptr, false);
 	};
 
+	if (options.appId) {
+		SDL_SetHint(SDL_HINT_APP_ID, options.appId);
+	}
+
 	if (!SDL_Init(SDL_INIT_VIDEO)) {
 		return fail("SDL_Init(SDL_INIT_VIDEO) failed");
 	}
@@ -167,6 +171,8 @@ static SDLState createWindowAndContext(int width, int height, const WindowOption
 
 	SDL_WindowFlags windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_HIGH_PIXEL_DENSITY;
 	if (options.resizable) windowFlags |= SDL_WINDOW_RESIZABLE;
+	if (options.borderless) windowFlags |= SDL_WINDOW_BORDERLESS;
+	if (options.alwaysOnTop) windowFlags |= SDL_WINDOW_ALWAYS_ON_TOP;
 	window = SDL_CreateWindow(options.title, width, height, windowFlags);
 	if (!window) {
 		return fail("SDL_CreateWindow failed");
@@ -231,7 +237,8 @@ static SDLState createWindowAndContext(int width, int height, const WindowOption
 SDLState initialize(int width, int height, const WindowOptions& options)
 {
 	// Must run before SDL_Init: the GL driver reads these when the context is created.
-	std::vector<const char*> gpuPreference = preferDedicatedGpu();
+	std::vector<const char*> gpuPreference;
+	if (options.preferDedicatedGpu) gpuPreference = preferDedicatedGpu();
 
 	SDLState state = createWindowAndContext(width, height, options, gpuPreference.empty());
 	if (!state.successfullyInitialized && !gpuPreference.empty())
