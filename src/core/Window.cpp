@@ -175,6 +175,7 @@ static SDLState createWindowAndContext(int width, int height, const WindowOption
 	if (options.borderless) windowFlags |= SDL_WINDOW_BORDERLESS;
 	if (options.alwaysOnTop) windowFlags |= SDL_WINDOW_ALWAYS_ON_TOP;
 	if (options.transparent) windowFlags |= SDL_WINDOW_TRANSPARENT;
+	if (options.hidden) windowFlags |= SDL_WINDOW_HIDDEN;
 	window = SDL_CreateWindow(options.title, width, height, windowFlags);
 	if (!window) {
 		return fail("SDL_CreateWindow failed");

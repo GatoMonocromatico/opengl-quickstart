@@ -27,7 +27,10 @@ public:
 	// Reallocates attachments when the requested size changed; no-op otherwise.
 	void resize(int w, int h);
 	void Bind();
-	// Rebinds the default framebuffer. Callers must restore their own viewport.
+	// What Unbind() returns to: 0 is the window; a hidden window's app points it at an
+	// offscreen Framebuffer's ID so every pass that goes back to "the screen" lands there.
+	static inline GLuint screenTarget = 0;
+	// Rebinds the screen target. Callers must restore their own viewport.
 	static void Unbind();
 	void Delete();
 };

@@ -63,7 +63,7 @@ void Framebuffer::Bind()
 
 void Framebuffer::Unbind()
 {
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glBindFramebuffer(GL_FRAMEBUFFER, screenTarget);
 }
 
 void Framebuffer::Delete()
