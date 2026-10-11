@@ -81,6 +81,8 @@ target_compile_definitions(opengl_quickstart
         $<$<CONFIG:Debug>:DEBUG>
         # absolute path, with trailing slash, to the stock shaders: Shader(QS_SHADER_DIR "default.vert", ...)
         QS_SHADER_DIR="${QS_ROOT}/shaders/"
+        # same for the bundled fonts: text.create(QS_FONT_DIR "VT323-Regular.ttf", 32.0f)
+        QS_FONT_DIR="${QS_ROOT}/fonts/"
 )
 
 # Call on every executable that links opengl_quickstart, so it finds the SDL

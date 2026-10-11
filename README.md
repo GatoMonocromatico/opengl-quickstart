@@ -117,6 +117,8 @@ opengl-quickstart/
 │   ├── default.vert/.frag  # main mesh pipeline (instancing, lighting, mask alpha)
 │   └── point.vert/.frag    # GL_POINTS pipeline
 │
+├── fonts/                # bundled .ttf fonts for Text, found through QS_FONT_DIR (licenses in fonts/README.md)
+│
 ├── example/              # app-level template: copy these into a new project and grow them
 │   ├── main.cpp          # init, main loop, cleanup
 │   ├── GameState.h       # scene objects, FPS
@@ -157,6 +159,7 @@ Shader shader(QS_SHADER_DIR "default.vert", "assets/shaders/my.frag");
 ```
 
 - `QS_SHADER_DIR` is the absolute path (trailing slash) to `shaders/`. Use the stock shaders from there, or ship your own and load them relative to the working dir.
+- `QS_FONT_DIR` is the same for `fonts/`: `text.create(QS_FONT_DIR "VT323-Regular.ttf", 32.0f)`.
 - `example/` is not part of the library. Your app owns its `main.cpp`, `Resources`, `GameState` and `GameObject`.
 - Keep the library static: the Windows dedicated-GPU exports in `core/Window.cpp` only work from inside the executable.
 
