@@ -85,6 +85,8 @@ void Context::beginFrame(int width, int height)
 	h_ = height;
 	in_ = std::move(pending_);
 	pending_ = Input{};
+	// cleared here, not at the end: a redraw asked for during the frame (a button's handler) gets another one
+	dirty_ = false;
 	dragDelta_ = in_.drag;
 	wheel_ = in_.wheel;
 	submittedId_ = 0;
@@ -104,7 +106,6 @@ void Context::endFrame()
 	const bool lostFocus = focusLost_ || (in_.pressed && !pressClaimed_ && focus_ != 0);
 	if (!(down_ & (1u << SDL_BUTTON_LEFT))) active_ = 0;
 	in_ = Input{};
-	dirty_ = false;
 	drawnPhase_ = blinkPhase();
 	// a click that hit no widget takes the focus away; repaint without the ring
 	if (lostFocus)
