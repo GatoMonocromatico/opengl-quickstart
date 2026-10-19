@@ -19,6 +19,7 @@ void Painter2D::create()
 	Delete();
 	shader_ = std::make_unique<Shader>(QS_SHADER_DIR "ui2d.vert", QS_SHADER_DIR "ui2d.frag");
 	screenLoc_ = glGetUniformLocation(shader_->ID, "uScreen");
+	texturedLoc_ = glGetUniformLocation(shader_->ID, "uTextured");
 
 	glGenVertexArrays(1, &vao_);
 	glGenBuffers(1, &vbo_);
@@ -145,6 +146,21 @@ void Painter2D::circleOutline(float cx, float cy, float radius, float thickness,
 {
 	if (radius <= 0 || thickness <= 0) return;
 	quad(cx, cy, radius, radius, 1, 0, radius, thickness, color);
+}
+
+void Painter2D::image(unsigned texture, float x, float y, float w, float h, const glm::vec4& tint)
+{
+	if (w <= 0 || h <= 0 || !texture || !shader_) return;
+	flush();
+	// a plain quad of its own, the shader samples the texture over it
+	quad(x + w * 0.5f, y + h * 0.5f, w * 0.5f, h * 0.5f, 1, 0, 0, 0, tint);
+	shader_->Activate();
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glUniform1i(texturedLoc_, 1);
+	flush();
+	glUniform1i(texturedLoc_, 0);
+	glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 void Painter2D::text(Text& font, std::string_view s, float x, float y, const glm::vec4& color, float scale)

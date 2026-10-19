@@ -48,6 +48,10 @@ public:
 	void circle(float cx, float cy, float radius, const glm::vec4& color);
 	void circleOutline(float cx, float cy, float radius, float thickness, const glm::vec4& color);
 
+	// A texture (a GL texture id) stretched over the rect, multiplied by tint. Drawn in
+	// call order like the shapes (it flushes them first).
+	void image(unsigned texture, float x, float y, float w, float h, const glm::vec4& tint = glm::vec4(1.0f));
+
 	// y is the baseline. Only rgb is used, GlyphGL's shader has no alpha input;
 	// mix the color toward the background for a dimmed look.
 	void text(Text& font, std::string_view s, float x, float y, const glm::vec4& color, float scale = 1.0f);
@@ -72,6 +76,7 @@ private:
 	unsigned vao_ = 0;
 	unsigned vbo_ = 0;
 	int screenLoc_ = -1;
+	int texturedLoc_ = -1;
 	std::vector<float> verts_;
 	std::vector<ClipRect> clips_;
 	int w_ = 0, h_ = 0;
