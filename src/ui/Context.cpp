@@ -14,7 +14,7 @@ static constexpr float kScrollbarW = 6.0f;
 void Context::init(Painter2D& painter, Text& font)
 {
 	painter_ = &painter;
-	font_ = &font;
+	font_ = baseFont_ = &font;
 }
 
 // --- input ---------------------------------------------------------------
@@ -87,6 +87,10 @@ void Context::beginFrame(int width, int height)
 	pending_ = Input{};
 	// cleared here, not at the end: a redraw asked for during the frame (a button's handler) gets another one
 	dirty_ = false;
+	// after that, so what a finished animation's callback asks for still counts
+	lastFrameMs_ = SDL_GetTicks();
+	anim.motionScale = theme.motionScale;
+	anim.update(lastFrameMs_);
 	dragDelta_ = in_.drag;
 	wheel_ = in_.wheel;
 	submittedId_ = 0;
@@ -95,7 +99,11 @@ void Context::beginFrame(int width, int height)
 	focusLost_ = false;
 	clips_.clear();
 	scrollStack_.clear();
+	canvasStack_.clear();
 	idStack_.clear();
+	fontStack_.clear();
+	font_ = baseFont_;
+	disabled_ = 0;
 	painter_->begin(width, height);
 }
 
@@ -121,25 +129,39 @@ int Context::blinkPhase() const
 	return static_cast<int>(((SDL_GetTicks() - lastInputMs_) / kBlinkMs) % 2);
 }
 
+// ms until the frame cap lets the next frame through
+int Context::capWaitMs() const
+{
+	const uint64_t now = SDL_GetTicks(), next = lastFrameMs_ + static_cast<uint64_t>(std::max(minFrameMs, 0));
+	return next > now ? static_cast<int>(next - now) : 0;
+}
+
 bool Context::needsRedraw() const
 {
-	if (dirty_) return true;
-	return textFocused_ && blinkPhase() != drawnPhase_;
+	const bool due = dirty_ || anim.waitTimeoutMs(SDL_GetTicks()) == 0 || (textFocused_ && blinkPhase() != drawnPhase_);
+	return due && capWaitMs() == 0;
 }
 
 int Context::waitTimeoutMs() const
 {
-	if (dirty_) return 0;
-	if (!textFocused_) return -1;
-	const uint64_t into = (SDL_GetTicks() - lastInputMs_) % kBlinkMs;
-	return static_cast<int>(kBlinkMs - into);
+	if (dirty_) return capWaitMs();
+	int wait = anim.waitTimeoutMs(SDL_GetTicks());
+	if (textFocused_)
+	{
+		const uint64_t into = (SDL_GetTicks() - lastInputMs_) % kBlinkMs;
+		const int blink = static_cast<int>(kBlinkMs - into);
+		wait = wait < 0 ? blink : std::min(wait, blink);
+	}
+	return wait < 0 ? wait : std::max(wait, capWaitMs());
 }
 
 // --- mouse helpers ---------------------------------------------------------
 
+glm::vec2 Context::mousePos() const { return painter_->transform().inverse(mouse_); }
+
 bool Context::hovered(const Rect& r) const
 {
-	if (!r.contains(mouse_)) return false;
+	if (disabled_ > 0 || !painter_->transform().apply(r).contains(mouse_)) return false;
 	return clips_.empty() || clips_.back().contains(mouse_);
 }
 
@@ -187,7 +209,7 @@ bool Context::submitted(std::string_view id) const { return submittedId_ == idOf
 
 void Context::pushClip(const Rect& r)
 {
-	Rect c = r;
+	Rect c = painter_->transform().apply(r);
 	if (!clips_.empty())
 	{
 		const Rect& p = clips_.back();
@@ -204,6 +226,26 @@ void Context::popClip()
 	if (clips_.empty()) return;
 	clips_.pop_back();
 	painter_->popClip();
+}
+
+// the painter's transform is the one hit-testing reads, so they can't drift apart
+void Context::pushTransform(glm::vec2 offset, float scale) { painter_->pushTransform(offset, scale); }
+void Context::popTransform() { painter_->popTransform(); }
+
+void Context::pushDisabled() { disabled_++; }
+void Context::popDisabled() { if (disabled_ > 0) disabled_--; }
+
+void Context::pushFont(Text& font)
+{
+	fontStack_.push_back(font_);
+	font_ = &font;
+}
+
+void Context::popFont()
+{
+	if (fontStack_.empty()) return;
+	font_ = fontStack_.back();
+	fontStack_.pop_back();
 }
 
 // --- text helpers -------------------------------------------------------------
@@ -387,6 +429,7 @@ void Context::endScroll()
 	popClip();
 
 	float& off = scroll_[f.id];
+	const float drawnAt = off;
 	const float maxOff = std::max(0.0f, f.contentH - f.view.h);
 	if (maxOff <= 0.0f) { off = 0.0f; return; }
 
@@ -406,11 +449,107 @@ void Context::endScroll()
 
 	bool hot;
 	clickRegion(thumb, thumbId, hot);
-	if (active_ == thumbId && travel > 0.0f) off += dragDelta_.y * maxOff / travel;
+	if (active_ == thumbId && travel > 0.0f) off += dragDelta().y * maxOff / travel;
 	off = std::clamp(off, 0.0f, maxOff);
+	// the content went out at the old offset: one more frame shows where it scrolled to
+	if (off != drawnAt) dirty_ = true;
 	thumb.y = f.view.y + off / maxOff * travel;
 	painter_->roundedRect(thumb.x, thumb.y, thumb.w, thumb.h, kScrollbarW * 0.5f,
 		hot || active_ == thumbId ? theme.scrollThumb : glm::vec4(glm::vec3(theme.scrollThumb), theme.scrollThumb.a * 0.6f));
+}
+
+// --- canvas ------------------------------------------------------------------------
+
+static AnimId flyId(uint32_t canvas) { return AnimId("ui.canvas.fly", static_cast<int>(canvas)); }
+
+CanvasInput Context::beginCanvas(const Rect& view, std::string_view id)
+{
+	const Id cid = idOf(id);
+	CanvasState& c = canvases_[cid];
+	c.view = view;
+	CanvasInput out;
+
+	if (c.flying)
+	{
+		c.cam.offset = glm::mix(c.flyFrom, c.flyTo, ease(c.flyEase, anim.progress(flyId(cid))));
+		c.flying = anim.running(flyId(cid));
+	}
+	// the press it took in endCanvas: a pan once it moves past the threshold, else a click
+	const glm::vec2 m = mousePos();
+	const unsigned left = 1u << SDL_BUTTON_LEFT;
+	if (c.clickNext)
+	{
+		out.clicked = true;
+		out.world = c.cam.toWorld(c.pressAt, view);
+		c.clickNext = false;
+	}
+	else if (active_ == cid)
+	{
+		if (!c.moved && glm::length(m - c.pressAt) > c.cam.dragThreshold) c.moved = true;
+		if (c.moved)
+		{
+			c.cam.offset = c.offsetAtPress + (m - c.pressAt);
+			c.flying = false;
+			out.panning = true;
+		}
+		if ((in_.released & left) && !c.moved)
+		{
+			out.clicked = true;
+			out.world = c.cam.toWorld(m, view);
+		}
+	}
+	if (wheel_ != 0.0f && hovered(view))
+	{
+		c.cam.zoomAt(m, std::pow(c.cam.wheelStep, wheel_), view);
+		c.flying = false;
+		wheel_ = 0.0f;
+	}
+
+	pushClip(view);
+	pushTransform(c.cam.origin(view), c.cam.zoom);
+	canvasStack_.push_back(cid);
+	return out;
+}
+
+void Context::endCanvas()
+{
+	if (canvasStack_.empty()) return;
+	const Id cid = canvasStack_.back();
+	canvasStack_.pop_back();
+	popTransform();
+	popClip();
+
+	// a press on the view that no widget inside took is the canvas's
+	CanvasState& c = canvases_[cid];
+	const unsigned left = 1u << SDL_BUTTON_LEFT;
+	if ((in_.pressed & left) && !pressClaimed_ && active_ == 0 && hovered(c.view))
+	{
+		active_ = cid;
+		pressClaimed_ = true;
+		if (focus_ != 0) { focus_ = 0; focusLost_ = true; }
+		c.pressAt = mousePos();
+		c.offsetAtPress = c.cam.offset;
+		c.moved = false;
+		// already let go (a quick click inside one frame): it's a click, told next frame
+		if ((in_.released & left) && !(down_ & left))
+		{
+			c.clickNext = true;
+			dirty_ = true;
+		}
+	}
+}
+
+CanvasView& Context::canvas(std::string_view id) { return canvases_[idOf(id)].cam; }
+
+void Context::flyCanvas(std::string_view id, glm::vec2 world, float ms, Ease e)
+{
+	const Id cid = idOf(id);
+	CanvasState& c = canvases_[cid];
+	c.flyFrom = c.cam.offset;
+	c.flyTo = c.cam.centered(world, c.view);
+	c.flyEase = e;
+	c.flying = true;
+	anim.start(flyId(cid), ms);
 }
 
 // --- text field ----------------------------------------------------------------
@@ -465,12 +604,13 @@ bool Context::textField(const Rect& r, std::string_view idStr, std::string& valu
 
 	auto relayout = [&] {
 		const float ww = wrapping ? inner.w : 0.0f;
-		if (st.wrappedText == ed.text() && st.wrappedWidth == ww && st.wrappedScale == theme.fontScale && !st.lines.empty()) return;
+		if (st.wrappedText == ed.text() && st.wrappedWidth == ww && st.wrappedScale == theme.fontScale && st.wrappedFont == font_ && !st.lines.empty()) return;
 		if (multi) st.lines = wrap(ed.text(), ww, mf);
 		else st.lines = { { 0, ed.text().size() } };
 		st.wrappedText = ed.text();
 		st.wrappedWidth = ww;
 		st.wrappedScale = theme.fontScale;
+		st.wrappedFont = font_;
 	};
 	relayout();
 
@@ -489,13 +629,14 @@ bool Context::textField(const Rect& r, std::string_view idStr, std::string& valu
 	// --- mouse ---
 	bool hot = canHover(id, r);
 	const bool shift = (SDL_GetModState() & SDL_KMOD_SHIFT) != 0;
+	const glm::vec2 m = mousePos();
 	if (hot && (in_.pressed & left))
 	{
 		pressClaimed_ = true;
 		focus_ = id;
 		active_ = id;
 		lastInputMs_ = SDL_GetTicks();
-		const size_t at = offsetAt(mouse_);
+		const size_t at = offsetAt(m);
 		if (in_.clicks >= 3 && multi)
 		{
 			const LineRange& ln = st.lines[lineOfOffset(st.lines, at)];
@@ -507,19 +648,19 @@ bool Context::textField(const Rect& r, std::string_view idStr, std::string& valu
 	}
 	else if (active_ == id && (down_ & left) && !(in_.pressed & left))
 	{
-		ed.setCaret(offsetAt(mouse_), true);
+		ed.setCaret(offsetAt(m), true);
 		// dragging above / below the box scrolls it
 		if (multi)
 		{
-			if (mouse_.y < inner.y) st.scrollY -= lh * 0.5f;
-			else if (mouse_.y > inner.y + inner.h) st.scrollY += lh * 0.5f;
+			if (m.y < inner.y) st.scrollY -= lh * 0.5f;
+			else if (m.y > inner.y + inner.h) st.scrollY += lh * 0.5f;
 		}
 		dirty_ = true;
 	}
 	if (active_ == id && (in_.released & left)) active_ = 0;
 
 	// --- keyboard ---
-	bool focused = focus_ == id;
+	bool focused = focus_ == id && disabled_ == 0;
 	bool edited = false;
 	if (focused)
 	{
@@ -580,7 +721,7 @@ bool Context::textField(const Rect& r, std::string_view idStr, std::string& valu
 		}
 	}
 	relayout();
-	textFocused_ = textFocused_ || (focus_ == id);
+	textFocused_ = textFocused_ || (focus_ == id && disabled_ == 0);
 
 	// --- scrolling ---
 	const size_t caretLine = lineOfOffset(st.lines, ed.caret());
@@ -618,7 +759,7 @@ bool Context::textField(const Rect& r, std::string_view idStr, std::string& valu
 	// --- draw ---
 	const bool isFocused = focus_ == id;
 	painter_->roundedRect(r.x, r.y, r.w, r.h, theme.radius, theme.field);
-	painter_->outline(r.x, r.y, r.w, r.h, isFocused ? 1.5f : theme.borderWidth, isFocused ? theme.accent : theme.border, theme.radius);
+	painter_->outline(r.x, r.y, r.w, r.h, isFocused ? theme.focusWidth : theme.borderWidth, isFocused ? theme.accent : theme.border, theme.radius);
 
 	pushClip(multi ? inner : Rect{ inner.x, r.y + 1, inner.w, r.h - 2 });
 	const auto [sa, sb] = ed.selection();

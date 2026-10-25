@@ -150,6 +150,37 @@ float Text::width(std::string_view s, float scale) const
 	return w * scale;
 }
 
+// the same walk glyph_renderer_draw_text does, minus the drawing
+void Text::layout(std::string_view s, float x, float y, float scale, std::vector<Glyph>& out) const
+{
+	if (!impl_ || s.empty()) return;
+	const std::string safe = prepare(s);
+	glyph_atlas_t& atlas = impl_->renderer.atlas;
+	const float aw = static_cast<float>(atlas.image.width), ah = static_cast<float>(atlas.image.height);
+	float pen = x;
+	for (size_t i = 0; i < safe.size();)
+	{
+		size_t len;
+		const uint32_t cp = utf8::decode(safe, i, len);
+		i += len;
+		glyph_atlas_char_t* ch = glyph_atlas_find_char(&atlas, static_cast<int>(cp));
+		if (!ch) ch = glyph_atlas_find_char(&atlas, '?');
+		if (!ch || ch->width == 0)
+		{
+			pen += ch ? static_cast<float>(ch->advance) * scale : atlas.pixel_height * 0.5f * scale;
+			continue;
+		}
+		const float x0 = pen + static_cast<float>(ch->xoff) * scale;
+		const float y0 = y - static_cast<float>(ch->yoff) * scale;
+		out.push_back({ x0, y0, x0 + static_cast<float>(ch->width) * scale, y0 + static_cast<float>(ch->height) * scale,
+		                static_cast<float>(ch->x) / aw, static_cast<float>(ch->y) / ah,
+		                static_cast<float>(ch->x + ch->width) / aw, static_cast<float>(ch->y + ch->height) / ah });
+		pen += static_cast<float>(ch->advance) * scale;
+	}
+}
+
+unsigned Text::atlas() const { return impl_ ? impl_->renderer.texture : 0; }
+
 size_t Text::indexAt(std::string_view s, float x, float scale) const
 {
 	if (!impl_ || x <= 0.0f) return 0;

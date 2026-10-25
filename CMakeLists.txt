@@ -44,6 +44,7 @@ add_library(opengl_quickstart STATIC
     src/ui/Anim.cpp
     src/ui/CanvasView.cpp
     src/ui/Context.cpp
+    src/ui/Fonts.cpp
     src/ui/Painter2D.cpp
     src/ui/TextEdit.cpp
     src/ui/Wrap.cpp

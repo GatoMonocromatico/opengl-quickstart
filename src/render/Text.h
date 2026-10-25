@@ -14,10 +14,15 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 class Text
 {
 public:
+	// One glyph as draw() would draw it: a quad in target pixels (y down) and where it
+	// is in the atlas (uv, v down)
+	struct Glyph { float x0, y0, x1, y1, u0, v0, u1, v1; };
+
 	Text();
 	~Text();
 
@@ -51,6 +56,12 @@ public:
 	// Byte offset of the caret boundary nearest to x (pixels from the string's
 	// start). Always on a codepoint boundary; 0 for x <= 0, s.size() past the end.
 	size_t indexAt(std::string_view s, float x, float scale = 1.0f) const;
+
+	// The glyphs draw() would draw, appended to out, for drawing the text with another
+	// shader (ui::Painter2D does, so text gets alpha and transforms). Same arguments.
+	void layout(std::string_view s, float x, float y, float scale, std::vector<Glyph>& out) const;
+	// the atlas the glyphs' uv point into: a GL_RED coverage texture, linear filtering
+	unsigned atlas() const;
 
 private:
 	struct Impl;
