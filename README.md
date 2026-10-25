@@ -111,7 +111,7 @@ text.create(QS_FONT_DIR "MesloLGSNerdFontMono-Regular.ttf", 18.0f, Text::Charset
 - `Charset::Ascii` (default): printable ASCII.
 - `Charset::Latin`: ASCII + Latin-1 Supplement + Latin Extended-A + `✓ ✗ → ← • … – — “ ” ‘ ’`. About 3x the glyphs, so a bigger atlas.
 
-The font must have the glyphs as simple (non-composite) outlines, GlyphGL skips composite ones. `MesloLGSNerdFontMono-Regular.ttf` has all of the Latin set. A codepoint that isn't in the charset is drawn and measured as `?`; control characters and malformed UTF-8 never crash, they draw nothing or `?`.
+The font must have the glyphs as simple (non-composite) outlines, GlyphGL skips composite ones. `Libraries/include/glyphgl/glyph_atlas.h` carries one local patch (marked `opengl-quickstart patch`): the atlas packer no longer shifts glyphs onto a shared baseline, which hung short glyphs into the next row and cut them (lost descenders, bits of other glyphs). Keep it if GlyphGL is ever updated. `MesloLGSNerdFontMono-Regular.ttf` has all of the Latin set. A codepoint that isn't in the charset is drawn and measured as `?`; control characters and malformed UTF-8 never crash, they draw nothing or `?`.
 
 Measuring for layout (all UTF-8 aware, byte offsets, `scale` like `draw`):
 

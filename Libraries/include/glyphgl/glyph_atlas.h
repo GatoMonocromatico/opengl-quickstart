@@ -427,8 +427,10 @@ static inline glyph_atlas_t glyph_atlas_create(const char* font_path, float pixe
             /* Blit all glyphs in current row to atlas */
             for (int r = 0; r < row_count; r++) {
                 int idx = current_row[r].index;
-                /* Align glyph to baseline */
-                int glyph_top = max_yoff - temp_glyphs[idx].yoff;
+                /* opengl-quickstart patch: no baseline shift. row_height never counted it, so a short
+                   glyph hung into the next row and got cut (descenders lost, bits of other glyphs picked up).
+                   Each glyph keeps its own yoff, the atlas doesn't need a shared baseline */
+                int glyph_top = 0;
 
                 /* Copy glyph bitmap to atlas texture */
                 for (int y = 0; y < temp_glyphs[idx].height; y++) {
@@ -508,7 +510,7 @@ static inline glyph_atlas_t glyph_atlas_create(const char* font_path, float pixe
         /* Blit final row glyphs to atlas */
         for (int r = 0; r < row_count; r++) {
             int idx = current_row[r].index;
-            int glyph_top = max_yoff - temp_glyphs[idx].yoff;
+            int glyph_top = 0; /* opengl-quickstart patch: no baseline shift, see above */
 
             /* Copy glyph bitmap to final position */
             for (int y = 0; y < temp_glyphs[idx].height; y++) {
