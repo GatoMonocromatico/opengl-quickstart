@@ -1,9 +1,16 @@
 // Tests for the GL-free parts of src/ui and src/util/Utf8.h.
 // Plain asserts, one binary: build with run_tests.sh or the ui_tests CMake target.
+#include "ui/Anim.h"
+#include "ui/CanvasView.h"
+#include "ui/Color.h"
+#include "ui/Geometry.h"
 #include "ui/TextEdit.h"
 #include "ui/Wrap.h"
 #include "util/Utf8.h"
 
+#include <algorithm>
+#include <cmath>
+#include <functional>
 #include <iostream>
 #include <string>
 
@@ -296,6 +303,236 @@ static void testVertical()
 	CHECK(m.caret() == 6 + 2);
 }
 
+static bool near(float a, float b, float eps = 1e-3f) { return std::fabs(a - b) <= eps; }
+
+static void testEase()
+{
+	using ui::Ease;
+	for (Ease e : { Ease::Linear, Ease::In, Ease::Out, Ease::InOut, Ease::Back })
+	{
+		CHECK(near(ui::ease(e, 0.0f), 0.0f));
+		CHECK(near(ui::ease(e, 1.0f), 1.0f));
+		CHECK(near(ui::ease(e, -1.0f), 0.0f) && near(ui::ease(e, 2.0f), 1.0f)); // clamped
+	}
+	CHECK(ui::ease(Ease::Out, 0.5f) > 0.5f);
+	CHECK(ui::ease(Ease::In, 0.5f) < 0.5f);
+	CHECK(near(ui::ease(Ease::InOut, 0.5f), 0.5f));
+	float peak = 0;
+	for (int i = 0; i <= 100; i++) peak = std::max(peak, ui::ease(Ease::Back, i / 100.0f));
+	CHECK(peak > 1.03f && peak < 1.08f); // about 5% past
+}
+
+static void testAnimTimers()
+{
+	ui::Anim a;
+	a.update(1000);
+	CHECK(!a.moving() && a.waitTimeoutMs(1000) == -1);
+	int done = 0;
+	a.start("t", 100, [&] { done++; });
+	CHECK(a.running("t") && near(a.progress("t"), 0.0f) && a.moving());
+	// frames every frameMs while it runs
+	CHECK(a.waitTimeoutMs(1000) == 33 && a.waitTimeoutMs(1040) == 0);
+	a.update(1050);
+	CHECK(near(a.progress("t"), 0.5f) && done == 0);
+	a.update(1080);
+	// its end comes before the next frame would: it gets a frame of its own
+	CHECK(a.waitTimeoutMs(1080) == 20);
+	a.update(1100);
+	CHECK(!a.running("t") && near(a.progress("t"), 1.0f) && done == 1);
+	a.update(1200);
+	CHECK(done == 1 && !a.moving() && a.waitTimeoutMs(1200) == -1);
+	CHECK(near(a.progress("never"), 1.0f) && !a.running("never"));
+
+	// a chain: the second starts where the first ended, not at the frame that noticed
+	a.start("a", 100, [&] { a.start("b", 100); });
+	a.update(1330);
+	CHECK(a.running("b") && near(a.progress("b"), 0.3f));
+
+	// stopped: no done
+	int stopped = 0;
+	a.start("s", 50, [&] { stopped++; });
+	a.stop("s");
+	a.update(1400);
+	CHECK(stopped == 0 && !a.running("s"));
+
+	// after(): waits without frames
+	ui::Anim w;
+	w.update(0);
+	int fired = 0;
+	w.after(500, [&] { fired++; });
+	CHECK(!w.moving() && w.waitTimeoutMs(100) == 400);
+	w.update(499);
+	CHECK(fired == 0);
+	w.update(500);
+	CHECK(fired == 1 && w.waitTimeoutMs(500) == -1);
+
+	// reduced motion: a timer lands on the next update
+	ui::Anim r;
+	r.motionScale = 0.0f;
+	r.update(0);
+	int landed = 0;
+	r.start("x", 400, [&] { landed++; });
+	CHECK(!r.running("x") && near(r.progress("x"), 1.0f) && r.waitTimeoutMs(0) == 0);
+	r.update(1);
+	CHECK(landed == 1);
+	// one that restarts itself at 0 ms fires once an update, it doesn't spin
+	int loops = 0;
+	std::function<void()> again = [&] { loops++; r.start("loop", 100, again); };
+	r.start("loop", 100, again);
+	r.update(2);
+	r.update(3);
+	CHECK(loops == 2);
+}
+
+static void testAnimTweens()
+{
+	ui::Anim a;
+	a.update(0);
+	// the first call starts on the target
+	CHECK(near(a.tween("x", 10, 100), 10.0f) && !a.moving());
+	CHECK(near(a.tween("x", 20, 100, ui::Ease::Linear), 10.0f) && a.moving());
+	a.update(50);
+	CHECK(near(a.tween("x", 20, 100, ui::Ease::Linear), 15.0f));
+	// a new target half way starts from where it is
+	CHECK(near(a.tween("x", 0, 100, ui::Ease::Linear), 15.0f));
+	a.update(100);
+	CHECK(near(a.tween("x", 0, 100, ui::Ease::Linear), 7.5f));
+	a.update(150);
+	CHECK(near(a.tween("x", 0, 100, ui::Ease::Linear), 0.0f) && !a.moving());
+	a.set("x", 5);
+	CHECK(near(a.tween("x", 5, 100), 5.0f) && !a.moving());
+	// an index makes its own id
+	CHECK(near(a.tween({ "card", 1 }, 1, 100), 1.0f) && near(a.tween({ "card", 2 }, 2, 100), 2.0f));
+	CHECK(!(ui::AnimId("card", 1) == ui::AnimId("card", 2)) && ui::AnimId("card") == ui::AnimId(std::string_view("card")));
+}
+
+static void testAnimSprings()
+{
+	ui::Anim a;
+	a.update(0);
+	CHECK(near(a.spring("s", 0), 0.0f) && !a.moving());
+	a.spring("s", 100);
+	CHECK(a.moving());
+	float peak = 0;
+	uint64_t t = 0;
+	while (a.moving() && t < 5000)
+	{
+		t += 16;
+		a.update(t);
+		peak = std::max(peak, a.spring("s", 100));
+	}
+	// about critically damped: it settles without a real overshoot
+	CHECK(!a.moving() && near(a.spring("s", 100), 100.0f) && peak <= 100.5f);
+	// lightly damped: past it, then back
+	a.spring("u", 0, 220, 10);
+	a.spring("u", 100, 220, 10);
+	peak = 0;
+	while (a.moving() && t < 20000)
+	{
+		t += 16;
+		a.update(t);
+		peak = std::max(peak, a.spring("u", 100, 220, 10));
+	}
+	CHECK(peak > 110.0f && near(a.spring("u", 100, 220, 10), 100.0f) && !a.moving());
+}
+
+static void testAnimRolls()
+{
+	ui::Anim a;
+	a.update(0);
+	int ticks = -1;
+	CHECK(near(a.roll("n", 3), 3.0f) && !a.moving());
+	// stepped: a unit every 40 ms, moving for 70% of it, then holding
+	CHECK(near(a.roll("n", 6, {}, &ticks), 3.0f) && ticks == 0);
+	a.update(14);
+	CHECK(near(a.roll("n", 6, {}, &ticks), 3.5f) && ticks == 1); // half way rounds up: a tick
+	a.update(35);
+	CHECK(near(a.roll("n", 6, {}, &ticks), 4.0f) && ticks == 0); // holding
+	a.update(80);
+	CHECK(near(a.roll("n", 6, {}, &ticks), 5.0f) && ticks == 1);
+	a.update(120);
+	CHECK(near(a.roll("n", 6, {}, &ticks), 6.0f) && ticks == 1 && !a.moving());
+	// a long way takes bigger steps, never longer than maxMs
+	a.roll("n", 106);
+	a.update(120 + 1600);
+	CHECK(near(a.roll("n", 106), 106.0f) && !a.moving());
+	// eased with Back: past the target, then on it
+	const ui::Roll eased{ .stepMs = 70, .baseMs = 140, .maxMs = 900, .ease = ui::Ease::Back, .stepped = false };
+	a.roll("m", 0, eased);
+	a.roll("m", 10, eased); // 140 + 10 * 70 = 840 ms
+	float peak = 0;
+	for (uint64_t t = 1720; t <= 1720 + 840; t += 10)
+	{
+		a.update(t);
+		peak = std::max(peak, a.roll("m", 10, eased));
+	}
+	CHECK(peak > 10.3f && near(a.roll("m", 10, eased), 10.0f) && !a.moving());
+	// reduced motion: it's there at once
+	ui::Anim r;
+	r.motionScale = 0.0f;
+	r.update(0);
+	r.roll("n", 1);
+	CHECK(near(r.roll("n", 50), 50.0f) && !r.moving());
+}
+
+static void testTransform()
+{
+	const ui::Transform2D outer{ { 10, 20 }, 2 }, inner{ { 3, 4 }, 0.5f };
+	const glm::vec2 p{ 7, -3 };
+	const glm::vec2 a = (outer * inner).apply(p), b = outer.apply(inner.apply(p));
+	CHECK(near(a.x, b.x) && near(a.y, b.y));
+	const glm::vec2 back = outer.inverse(outer.apply(p));
+	CHECK(near(back.x, p.x) && near(back.y, p.y));
+	const ui::Rect r = outer.apply(ui::Rect{ 1, 2, 3, 4 });
+	CHECK(near(r.x, 12) && near(r.y, 24) && near(r.w, 6) && near(r.h, 8));
+}
+
+static void testCanvasView()
+{
+	const ui::Rect view{ 100, 50, 400, 300 };
+	ui::CanvasView c;
+	c.offset = { 20.4f, 10.6f };
+	c.zoom = 1.5f;
+	// world (0, 0) on a whole pixel; world and screen undo each other through it
+	CHECK(near(c.origin(view).x, 120) && near(c.origin(view).y, 61));
+	const glm::vec2 w{ 33, 44 };
+	const glm::vec2 back = c.toWorld(c.toScreen(w, view), view);
+	CHECK(near(back.x, w.x) && near(back.y, w.y));
+	// zooming at a point keeps the world under it there (to the origin's rounding)
+	const glm::vec2 at{ 260, 170 };
+	const glm::vec2 before = c.toWorld(at, view);
+	c.zoomAt(at, 1.12f, view);
+	const glm::vec2 after = c.toWorld(at, view);
+	CHECK(near(c.zoom, 1.68f) && std::fabs(after.x - before.x) < 0.5f && std::fabs(after.y - before.y) < 0.5f);
+	c.zoomAt(at, 100.0f, view);
+	CHECK(near(c.zoom, c.maxZoom));
+	// fit: all of the world, centred, within the limits
+	const ui::Rect world{ 0, 0, 800, 300 };
+	c.fit(world, view, 10);
+	CHECK(near(c.zoom, 0.5f)); // 380 / 800 is under minZoom
+	c.minZoom = 0.25f;
+	c.fit(world, view, 10);
+	CHECK(near(c.zoom, 0.475f));
+	const glm::vec2 mid = c.toScreen({ 400, 150 }, view);
+	CHECK(std::fabs(mid.x - 300) <= 0.5f && std::fabs(mid.y - 200) <= 0.5f);
+	const glm::vec2 centre = c.centered({ 400, 150 }, view);
+	CHECK(near(centre.x, c.offset.x) && near(centre.y, c.offset.y));
+}
+
+static void testColor()
+{
+	const glm::vec4 c = ui::rgb(0x283a35);
+	CHECK(near(c.r, 40 / 255.0f) && near(c.g, 58 / 255.0f) && near(c.b, 53 / 255.0f) && near(c.a, 1.0f));
+	bool fits = false;
+	// no chroma: L cubed is the linear grey, 0.4219, which encodes to 0.6814
+	const glm::vec3 grey = ui::oklch(0.75f, 0.0f, 0.0f, &fits);
+	CHECK(fits && near(grey.r, 0.6814f, 2e-3f) && near(grey.g, grey.r, 2e-3f) && near(grey.b, grey.r, 2e-3f));
+	ui::oklch(0.7f, 0.4f, 145.0f, &fits);
+	CHECK(!fits);
+	const glm::vec3 white = ui::oklch(1.0f, 0.0f, 0.0f, &fits);
+	CHECK(fits && near(white.r, 1.0f, 2e-3f));
+}
+
 int main()
 {
 	testUtf8();
@@ -305,6 +542,14 @@ int main()
 	testWords();
 	testLineKeys();
 	testVertical();
+	testEase();
+	testAnimTimers();
+	testAnimTweens();
+	testAnimSprings();
+	testAnimRolls();
+	testTransform();
+	testCanvasView();
+	testColor();
 	std::cout << gPassed << " passed, " << gFailed << " failed.\n";
 	return gFailed == 0 ? 0 : 1;
 }
