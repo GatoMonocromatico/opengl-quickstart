@@ -119,6 +119,8 @@ Measuring for layout (all UTF-8 aware, byte offsets, `scale` like `draw`):
 - `ascent(scale)` / `descent(scale)`: how far glyphs reach above / below the baseline; `lineHeight()` is the line pitch.
 - `indexAt(s, x, scale)`: byte offset of the caret boundary nearest x, never inside a UTF-8 sequence. Use it to turn a click into a caret.
 
+`draw(s, x, y, color, scale, opacity)` fades the whole string with `opacity` (default 1). For that `Text` builds GlyphGL with its own default fragment shader plus one `opacity` uniform, passed in as a custom effect, so `Libraries/` stays untouched.
+
 `util/Utf8.h` has the codepoint helpers (`utf8::next/prev/snap/count/valid/sanitize`).
 
 ## UI widgets

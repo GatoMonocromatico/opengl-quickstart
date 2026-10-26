@@ -27,6 +27,7 @@
 struct Text::Impl
 {
 	glyph_renderer_t renderer{};
+	GLint opacityAt = -1;
 	// codepoint -> advance in pixels, so measuring doesn't scan the atlas
 	std::unordered_map<uint32_t, float> advance;
 	float fallback = 0.0f;
@@ -62,6 +63,20 @@ static std::string charsetString(Text::Charset charset)
 	return out;
 }
 
+// GlyphGL's own fragment shader with an opacity on top, so draw can fade text
+static const std::string& fadingFragmentShader()
+{
+	static const std::string source = [] {
+		std::string s = glyph__get_fragment_shader_source_cached();
+		const std::string colour = "uniform vec3 textColor;\n";
+		s.replace(s.find(colour), colour.size(), colour + "uniform float opacity = 1.0;\n");
+		const std::string out = "FragColor = vec4(textColor, alpha);";
+		s.replace(s.find(out), out.size(), "FragColor = vec4(textColor, alpha * opacity);");
+		return s;
+	}();
+	return source;
+}
+
 Text::Text() = default;
 Text::~Text() = default;
 
@@ -75,11 +90,14 @@ void Text::create(const std::string& fontPath, float pixelHeight, Charset charse
 	const std::string chars = charsetString(charset);
 
 	auto impl = std::make_unique<Impl>();
-	impl->renderer = glyph_renderer_create(fontPath.c_str(), pixelHeight, chars.c_str(), GLYPH_ENCODING_UTF8, nullptr, 0);
+	// any type but none makes GlyphGL take these shaders, it draws the same either way
+	glyph_effect_t fading = { GLYPH_EFFECT_GLOW, glyph__get_vertex_shader_source_cached(), fadingFragmentShader().c_str() };
+	impl->renderer = glyph_renderer_create(fontPath.c_str(), pixelHeight, chars.c_str(), GLYPH_ENCODING_UTF8, &fading, 0);
 	if (!impl->renderer.initialized)
 	{
 		throw std::runtime_error("Text: GlyphGL could not load " + fontPath);
 	}
+	impl->opacityAt = glGetUniformLocation(impl->renderer.shader, "opacity");
 
 	const glyph_atlas_t& atlas = impl->renderer.atlas;
 	for (int i = 0; i < atlas.num_chars; i++)
@@ -113,7 +131,7 @@ void Text::setViewport(int width, int height)
 	if (impl_) glyph_renderer_set_projection(&impl_->renderer, width, height);
 }
 
-void Text::draw(std::string_view s, float x, float y, const glm::vec3& color, float scale)
+void Text::draw(std::string_view s, float x, float y, const glm::vec3& color, float scale, float opacity)
 {
 	if (!impl_ || s.empty()) return;
 	const std::string safe = prepare(s);
@@ -123,6 +141,8 @@ void Text::draw(std::string_view s, float x, float y, const glm::vec3& color, fl
 	glEnable(GL_BLEND);
 	glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 	glDisable(GL_DEPTH_TEST);
+	glUseProgram(impl_->renderer.shader);
+	glUniform1f(impl_->opacityAt, opacity);
 	glyph_renderer_draw_text(&impl_->renderer, safe.c_str(), x, y, scale, color.r, color.g, color.b, 0);
 	glEnable(GL_DEPTH_TEST);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

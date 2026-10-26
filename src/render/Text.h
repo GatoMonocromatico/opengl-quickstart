@@ -37,8 +37,8 @@ public:
 
 	// x, y in pixels from the top-left; y is the baseline. Blends so the target's
 	// alpha ends up as the text coverage, which is what a shader sampling a text
-	// texture wants.
-	void draw(std::string_view s, float x, float y, const glm::vec3& color, float scale = 1.0f);
+	// texture wants. `opacity` fades the whole string.
+	void draw(std::string_view s, float x, float y, const glm::vec3& color, float scale = 1.0f, float opacity = 1.0f);
 	// advance of the whole string (UTF-8 aware)
 	float width(std::string_view s, float scale = 1.0f) const;
 	float lineHeight() const { return lineHeight_; }
