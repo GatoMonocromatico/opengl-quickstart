@@ -163,7 +163,7 @@ See `example/widgets.cpp` for a full loop.
 
 Widgets, all taking a pixel `Rect`: `button`, `checkbox`, `progressBar`, `textField` (single line, or `.multiline` with `.wrap`; caret, selection, mouse click / drag / double-click word / triple-click line, Ctrl+A/C/X/V, scrolls to the caret), `tabBar` (returns `clicked` / `closed` index), `label`, `beginScroll` / `endScroll`. Widgets are identified by their label or id string; `"Text##id"` shows `Text`, `pushId()` scopes ids in loops. `Theme` holds colors, padding, radius and font scale.
 
-Mouse helpers for custom widgets, the same ones the widgets use: `hovered(rect)`, `pressed`, `released`, `doubleClicked`, `mouseDown`, `dragDelta()`, `wheel()` / `consumeWheel()`, `pushClip/popClip` (clips hit-testing and drawing together).
+Mouse helpers for custom widgets, the same ones the widgets use: `hovered(rect)`, `pressed`, `released`, `doubleClicked`, `mouseDown`, `dragDelta()`, `wheel()` / `consumeWheel()`, `pushClip/popClip` (clips hit-testing and drawing together). `clickArea(rect, id, &held)` is an invisible button for a widget the app draws itself: it takes the press like `button` (so a canvas under it doesn't pan), is true on the click, and `held` says it's being pressed.
 
 Scopes on the context, each a push and a pop:
 
@@ -207,7 +207,7 @@ ui.canvas("chart").fit(worldRect, view, 8);                   // or zoomAt(point
 ui.flyCanvas("chart", cardCentre, 500);                       // glides there (InOut), a drag cuts it short
 ```
 
-Widgets inside take their presses first; a press nobody took is the canvas's. Its origin sits on a whole pixel, so 1 px lines stay crisp at zoom 1. For sharp text under a zoom, make the font at the size it's shown and draw it at `1 / zoom` (`ui::Fonts` keeps one atlas per size).
+Widgets inside take their presses first; a press nobody took is the canvas's. Its origin sits on a whole pixel, so 1 px lines stay crisp at zoom 1, and the wheel keeps the point drawn under the pointer there. For sharp text under a zoom, make the font at the size it's shown and draw it at `1 / zoom` (`ui::Fonts` keeps one atlas per size).
 
 ### Painter2D: transforms, alpha, dither, images, an app's own shader
 

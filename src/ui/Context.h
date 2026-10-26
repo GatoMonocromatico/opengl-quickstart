@@ -173,6 +173,10 @@ public:
 	void flyCanvas(std::string_view id, glm::vec2 world, float ms, Ease ease = Ease::InOut);
 
 	// --- widgets -----------------------------------------------------------
+	// An invisible button, for widgets the app draws itself: it takes the press the way
+	// button() does (a canvas under it doesn't pan, a focused field lets go) and is true
+	// when the press is let go over it. held: pressed on it, still down, and over it.
+	bool clickArea(const Rect& r, std::string_view id, bool* held = nullptr);
 	void label(float x, float y, std::string_view s, std::optional<glm::vec4> color = {});
 	void label(const Rect& r, std::string_view s, Align align = Align::Left, std::optional<glm::vec4> color = {});
 	bool button(const Rect& r, std::string_view label);

@@ -316,6 +316,15 @@ bool Context::clickRegion(const Rect& r, Id id, bool& hot)
 	return clicked;
 }
 
+bool Context::clickArea(const Rect& r, std::string_view label, bool* held)
+{
+	const Id id = idOf(label);
+	bool hot;
+	const bool clicked = clickRegion(r, id, hot);
+	if (held) *held = active_ == id && hot;
+	return clicked;
+}
+
 bool Context::button(const Rect& r, std::string_view label)
 {
 	const Id id = idOf(label);

@@ -14,9 +14,10 @@ glm::vec2 CanvasView::origin(const Rect& view) const
 void CanvasView::zoomAt(glm::vec2 screen, float factor, const Rect& view)
 {
 	const float z = std::clamp(zoom * factor, minZoom, maxZoom);
-	// the point under the pointer, relative to the view, stays put
-	const glm::vec2 p = screen - glm::vec2(view.x, view.y);
-	offset = p - (p - offset) * (z / zoom);
+	// the world point drawn under the pointer stays under it: taken through the rounded
+	// origin, the one on the screen, or the view creeps by its rounding every notch
+	const glm::vec2 world = toWorld(screen, view);
+	offset = screen - glm::vec2(view.x, view.y) - world * z;
 	zoom = z;
 }
 
