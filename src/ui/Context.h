@@ -78,6 +78,8 @@ struct TextFieldOptions
 	bool wrap = true; // multiline only
 	bool readOnly = false;
 	const char* placeholder = nullptr;
+	// all of it selected when it takes the focus, so typing replaces it (a rename)
+	bool selectOnFocus = false;
 };
 
 struct TabResult
@@ -222,6 +224,7 @@ private:
 		const Text* wrappedFont = nullptr;
 		size_t lastCaret = std::string::npos;
 		bool wasEnter = false;
+		bool hadFocus = false;
 	};
 
 	struct ScrollFrame { Rect view; Id id; float contentH; };

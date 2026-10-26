@@ -671,6 +671,9 @@ bool Context::textField(const Rect& r, std::string_view idStr, std::string& valu
 	// --- keyboard ---
 	bool focused = focus_ == id && disabled_ == 0;
 	bool edited = false;
+	// a press on it places the caret, so only a focus given another way selects all
+	if (focused && !st.hadFocus && opt.selectOnFocus && !(hot && (in_.pressed & left))) ed.selectAll();
+	st.hadFocus = focused;
 	if (focused)
 	{
 		auto clipboardSet = [&](const std::string& s) { if (!s.empty()) SDL_SetClipboardText(s.c_str()); };
