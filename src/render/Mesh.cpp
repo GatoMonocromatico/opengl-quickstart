@@ -2,7 +2,7 @@
 #include "render/Mesh.h"
 #include "util/DebugLog.h"
 
-Mesh::Mesh(const std::vector<Vertex>& verts, const std::vector<GLuint>& indxs, std::vector<Texture> textures, glm::vec3 model) :
+Mesh::Mesh(const std::vector<Vertex>& verts, const std::vector<GLuint>& indxs, std::vector<Texture> textures, glm::vec3 model, bool generateNormals) :
 	vertices(verts),
 	indices(indxs),
 	textures(textures),
@@ -12,7 +12,9 @@ Mesh::Mesh(const std::vector<Vertex>& verts, const std::vector<GLuint>& indxs, s
 	model(glm::translate(glm::mat4(1.0f), model))
 {
 	// Normals default to 0; this duplicates vertices on sharp edges so lighting matches faceted art.
-	createNormals();
+	// Loaded models (render/Model.h) bring their own normals and skip it.
+	if (generateNormals)
+		createNormals();
 	
 	VAO1.Bind();
 
@@ -27,13 +29,14 @@ Mesh::Mesh(const std::vector<Vertex>& verts, const std::vector<GLuint>& indxs, s
 	VAO1.LinkAttrib(VBO1, 4, 3, GL_FLOAT, sizeof(Vertex), (void*)(11 * sizeof(float)));        // normal
 	VAO1.LinkAttrib(VBO1, 7, 1, GL_FLOAT, sizeof(Vertex), (void*)(14 * sizeof(float)));       // naturalLuminence (per-vertex scalar)
 
-	// Placeholder per-instance data; updateInstanceVBO can stream real offsets each frame.
-	VBOInstances.createVBO(std::vector<float>{0.0f, 0.0f, 0.0f, 0.0f, 0.0f});
+	// Placeholder per-instance data (one instance: no offsets, fully opaque); updateInstanceVBO
+	// can stream real data each frame. Six floats to match the stride below.
+	VBOInstances.createVBO(std::vector<float>{0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f});
 
 	// Divisor 1: advance these attributes once per instance, not per vertex.
 	VAO1.LinkAttrib(VBOInstances, 5, 3, GL_FLOAT, 6 * sizeof(float), (void*)0, 1);             // instance position offset
 	VAO1.LinkAttrib(VBOInstances, 6, 2, GL_FLOAT, 6 * sizeof(float), (void*)(3 * sizeof(float)), 1); // instance UV offset
-	VAO1.LinkAttrib(VBOInstances, 8, 1, GL_FLOAT, 6 * sizeof(float), (void*)(5 * sizeof(float)), 1); // instance UV offset
+	VAO1.LinkAttrib(VBOInstances, 8, 1, GL_FLOAT, 6 * sizeof(float), (void*)(5 * sizeof(float)), 1); // instance opacity
 	
 	VAO1.Unbind();
 	VBO1.Unbind();

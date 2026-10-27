@@ -28,7 +28,9 @@ class Mesh
 
 
 		VAO VAO1;
-	Mesh(const std::vector<Vertex>& vertices, const std::vector<GLuint>& indices, std::vector<Texture> textures, glm::vec3 model = glm::vec3(0.0f, 0.0f, 0.0f));
+	// generateNormals = false keeps the normals in `vertices` (e.g. from a loaded model)
+	// instead of recomputing flat per-face normals.
+	Mesh(const std::vector<Vertex>& vertices, const std::vector<GLuint>& indices, std::vector<Texture> textures, glm::vec3 model = glm::vec3(0.0f, 0.0f, 0.0f), bool generateNormals = true);
 	void Draw(Shader& shader, Camera& camera, glm::mat4 objectModel = glm::mat4(1));
 	void Draw(Shader& shader, Camera& camera, glm::mat4 objectModel = glm::mat4(1), int numIntaces = 1);
 	void updateInstanceVBO(std::vector<float>& data);
