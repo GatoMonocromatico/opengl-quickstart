@@ -34,6 +34,9 @@ add_library(opengl_quickstart STATIC
     src/render/EBO.cpp
     src/render/Framebuffer.cpp
     src/render/Mesh.cpp
+    src/render/Model.cpp
+    src/render/ModelData.cpp
+    src/render/cgltf_impl.c
     src/render/point.cpp
     src/render/RoundedCorner2D.cpp
     src/render/shaderClass.cpp
@@ -130,4 +133,9 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_executable(ui_tests tests/ui_tests.cpp src/ui/TextEdit.cpp src/ui/Wrap.cpp)
     target_include_directories(ui_tests PRIVATE "${QS_ROOT}/src")
     add_test(NAME ui_tests COMMAND ui_tests)
+
+    # Tests for model loading (STL, glTF, GLB), GL-free
+    add_executable(model_tests tests/model_tests.cpp src/render/ModelData.cpp src/render/cgltf_impl.c)
+    target_include_directories(model_tests PRIVATE "${QS_ROOT}/src" "${QS_INCLUDE_DIR}")
+    add_test(NAME model_tests COMMAND model_tests)
 endif()

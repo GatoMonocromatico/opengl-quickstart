@@ -14,6 +14,7 @@ It is two things: a static library (`opengl_quickstart`) that apps pull in as a 
 | **SDL3_image** | PNG/JPG loading for `Texture` |
 | **GLM** | Vectors, matrices, `lookAt`, `perspective` |
 | **GlyphGL** | TrueType text for `Text` (header-only, MIT) |
+| **cgltf** | glTF 2.0 parsing for `Model` (single header, MIT) |
 
 All headers are under `Libraries/include/`. Pre-built libraries live under `Libraries/lib_linux/lib/` (Linux) and `Libraries/lib_win/lib/` (Windows). CMake picks the right folder automatically.
 
@@ -162,7 +163,7 @@ Mouse helpers for custom widgets, the same ones the widgets use: `hovered(rect)`
 
 Notes: text color has no alpha (GlyphGL's shader takes rgb only). Mouse coordinates are converted to drawable pixels, so high-DPI works. `ui::Context` ignores everything it doesn't handle, the app keeps its own key handling (check `wantsKeyboard()` first).
 
-Demo: `./build/opengl_quickstart_widgets` (`QS_SHOT=<png>` saves a frame and exits, `QS_TAB=0|1|2` picks the tab). Tests for the non-GL parts: `tests/run_tests.sh` or `ctest` in the build dir (`ui_tests`).
+Demo: `./build/opengl_quickstart_widgets` (`QS_SHOT=<png>` saves a frame and exits, `QS_TAB=0|1|2` picks the tab). Tests for the non-GL parts: `tests/run_tests.sh` or `ctest` in the build dir (`ui_tests`, `model_tests`).
 
 ## Repository layout
 
@@ -175,6 +176,9 @@ opengl-quickstart/
 │   │   └── Window.h/.cpp # SDLState, WindowOptions, initialize/cleanup, dedicated-GPU selection
 │   ├── render/
 │   │   ├── Mesh.h/.cpp           # VAO+VBO+EBO geometry, instanced draw, normal generation, updateVertices
+│   │   ├── Model.h/.cpp          # a loaded .gltf/.glb/.stl as Meshes, drawn with one call
+│   │   ├── ModelData.h/.cpp      # model files -> vertex data (no GL; cgltf for glTF, own STL reader)
+│   │   ├── cgltf_impl.c          # the one translation unit that compiles cgltf
 │   │   ├── VAO/VBO/EBO.h/.cpp    # buffer object wrappers (Vertex lives in VBO.h)
 │   │   ├── shaderClass.h/.cpp    # compile/link GLSL; expands `#include "file"` in shaders
 │   │   ├── texture.h/.cpp        # 2-D texture loading via SDL_image
@@ -212,7 +216,7 @@ opengl-quickstart/
 │   ├── gameObject.h/.cpp # logical entity: indexes a Mesh in Resources + own transform
 │   └── Textures/         # sample textures
 │
-├── tests/                # RoundedCorner2D tests (test.cpp) and ui_tests.cpp (Utf8, Wrap, TextEdit); run_tests.sh builds and runs both
+├── tests/                # RoundedCorner2D tests (test.cpp), ui_tests.cpp (Utf8, Wrap, TextEdit), model_tests.cpp (STL, glTF, GLB); run_tests.sh builds and runs them
 ├── Libraries/
 │   ├── include/          # GLAD, GLM, SDL3, SDL3_image, stb, GlyphGL headers
 │   ├── lib_linux/lib/    # Linux shared objects
@@ -268,6 +272,30 @@ Shader shader(QS_SHADER_DIR "default.vert", "assets/shaders/my.frag");
 | `numScenarioLights` | `int` | Active lights in the `ScenarioLights` UBO block |
 
 Lights are streamed each frame via `glBufferSubData` into a UBO bound to GLSL `layout(std140) uniform ScenarioLights`.
+
+## Loading models
+
+`render/Model.h` loads `.gltf`, `.glb` and `.stl` files into Meshes:
+
+```cpp
+Model drone;
+std::string err;
+if (!drone.load("assets/drone.glb", err))
+    std::cerr << err << "\n";
+drone.Draw(shader, camera, transform);   // every part, one call
+```
+
+- **glTF / GLB** (via cgltf): every triangle primitive of the default scene, node transforms
+  baked into the vertices, the file's normals (smooth normals computed when it has none), and
+  per-vertex colour from `COLOR_0` or the material's base colour. Textures aren't loaded yet.
+- **STL**, binary or ASCII: one light-grey part with facet normals.
+- Units are the file's own: glTF is in metres with +Y up, STL is often in millimetres; scale it
+  with the transform you draw it with.
+- Colours land in `Vertex::color` with alpha 1, so with the stock `default.frag` they cover the
+  (unbound) texture; a shader that only uses `aColor` and `aNormal` works as is.
+- `render/ModelData.h` is the GL-free half (`loadModelData`), for tools and tests.
+- `Mesh` normally recomputes flat normals from the triangle winding; pass
+  `generateNormals = false` to its constructor to keep yours (`Model` does).
 
 ---
 
