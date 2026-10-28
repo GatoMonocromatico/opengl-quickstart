@@ -80,24 +80,20 @@ static const std::string& fadingFragmentShader()
 // GlyphGL's rasteriser puts each edge's whole coverage in one pixel, so a stroke thinner than a
 // pixel, both its edges in the same one, cancels out: small text loses strokes ('l' becomes a dot,
 // 'p' an 'o'). A small atlas is redrawn from the same rasteriser at 4x, each pixel the mean of its
-// 4x4 (Libraries/ stays untouched)
-static void supersample(const glyph_renderer_t& r, const std::string& fontPath, float pixelHeight)
+// 4x4 (Libraries/ stays untouched), into red, the atlas's coverage, stride px a row
+static void supersample(const glyph_atlas_t& atlas, const std::string& fontPath, float pixelHeight, std::vector<unsigned char>& red, int stride)
 {
 	glyph_font_t font{};
 	if (!glyph_ttf_load_font_from_file(&font, fontPath.c_str())) return;
 	const float scale = glyph_ttf_scale_for_pixel_height(&font, pixelHeight) * 4.0f;
-	glBindTexture(GL_TEXTURE_2D, r.texture);
-	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-	std::vector<unsigned char> out;
-	for (int i = 0; i < r.atlas.num_chars; i++)
+	for (int i = 0; i < atlas.num_chars; i++)
 	{
-		const glyph_atlas_char_t& ch = r.atlas.chars[i];
+		const glyph_atlas_char_t& ch = atlas.chars[i];
 		if (ch.width <= 0 || ch.height <= 0) continue;
 		int w = 0, h = 0, xoff = 0, yoff = 0;
 		unsigned char* big = glyph_ttf_get_glyph_bitmap(&font, glyph_ttf_find_glyph_index(&font, ch.codepoint), scale, scale, &w, &h, &xoff, &yoff);
 		if (!big) continue;
 		// the 4x bitmap starts where the 1x one does (the outline's left and top), so blocks line up
-		out.assign(static_cast<size_t>(ch.width) * ch.height, 0);
 		for (int y = 0; y < ch.height; y++)
 			for (int x = 0; x < ch.width; x++)
 			{
@@ -105,13 +101,41 @@ static void supersample(const glyph_renderer_t& r, const std::string& fontPath, 
 				for (int sy = 0; sy < 4; sy++)
 					for (int sx = 0; sx < 4; sx++)
 						if (x * 4 + sx < w && y * 4 + sy < h) sum += big[(y * 4 + sy) * w + x * 4 + sx];
-				out[static_cast<size_t>(y) * ch.width + x] = static_cast<unsigned char>(sum / 16);
+				red[static_cast<size_t>(ch.y + y) * stride + ch.x + x] = static_cast<unsigned char>(sum / 16);
 			}
 		glyph_ttf_free_bitmap(big);
-		glTexSubImage2D(GL_TEXTURE_2D, 0, ch.x, ch.y, ch.width, ch.height, GL_RED, GL_UNSIGNED_BYTE, out.data());
 	}
-	glBindTexture(GL_TEXTURE_2D, 0);
 	glyph_ttf_free_font(&font);
+}
+
+// GlyphGL makes every atlas 2048x2048 or more (its header sets the size again after ours) and keeps
+// an RGB copy of it: 16 MB a face, nearly all of it empty (nine faces were most of a small app's
+// memory). The texture is cut to where the glyphs are and the copy goes
+static void packAtlas(glyph_renderer_t& r, const std::string& fontPath, float pixelHeight)
+{
+	glyph_atlas_t& atlas = r.atlas;
+	int w = 1, h = 1;
+	for (int i = 0; i < atlas.num_chars; i++)
+	{
+		w = std::max(w, atlas.chars[i].x + atlas.chars[i].width);
+		h = std::max(h, atlas.chars[i].y + atlas.chars[i].height);
+	}
+	// GlyphGL's 4 px between glyphs, past the last ones too: an edge's sampling finds nothing
+	w = std::min(w + 4, static_cast<int>(atlas.image.width));
+	h = std::min(h + 4, static_cast<int>(atlas.image.height));
+	std::vector<unsigned char> red(static_cast<size_t>(w) * h);
+	for (int y = 0; y < h; y++)
+		for (int x = 0; x < w; x++) red[static_cast<size_t>(y) * w + x] = atlas.image.data[(static_cast<size_t>(y) * atlas.image.width + x) * 3];
+	// from about 24 px every stroke is wider than a pixel
+	if (pixelHeight <= 24.0f) supersample(atlas, fontPath, pixelHeight, red, w);
+	glBindTexture(GL_TEXTURE_2D, r.texture);
+	glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, w, h, 0, GL_RED, GL_UNSIGNED_BYTE, red.data());
+	glBindTexture(GL_TEXTURE_2D, 0);
+	// the uvs come from the image's size (GlyphGL's draw and layout), so it's the texture's now
+	glyph_image_free(&atlas.image);
+	atlas.image.width = static_cast<unsigned>(w);
+	atlas.image.height = static_cast<unsigned>(h);
 }
 
 Text::Text() = default;
@@ -135,8 +159,7 @@ void Text::create(const std::string& fontPath, float pixelHeight, Charset charse
 		throw std::runtime_error("Text: GlyphGL could not load " + fontPath);
 	}
 	impl->opacityAt = glGetUniformLocation(impl->renderer.shader, "opacity");
-	// from about 24 px every stroke is wider than a pixel
-	if (pixelHeight <= 24.0f) supersample(impl->renderer, fontPath, pixelHeight);
+	packAtlas(impl->renderer, fontPath, pixelHeight);
 
 	const glyph_atlas_t& atlas = impl->renderer.atlas;
 	for (int i = 0; i < atlas.num_chars; i++)

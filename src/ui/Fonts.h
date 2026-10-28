@@ -8,8 +8,9 @@
 //   Text& f = fonts.get(QS_FONT_DIR "VT323-Regular.ttf", std::round(12 * zoom));
 //   painter.text(f, "Cache", x, y, ink, 1.0f / zoom);   // inside pushTransform(..., zoom)
 //
-// Needs the GL context, like Text. Every atlas is a 1024x1024 texture, so ask for
-// whole pixel sizes rather than one per zoom step.
+// Needs the GL context, like Text. Every atlas is a texture of its own (its glyphs,
+// a few hundred kB) kept till Delete(), so ask for whole pixel sizes rather than one
+// per zoom step.
 
 #include "render/Text.h"
 
