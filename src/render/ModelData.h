@@ -18,7 +18,7 @@
 
 struct ModelPart
 {
-	std::vector<Vertex> vertices; // colour alpha 1, so the colour covers any texture fully
+	std::vector<Vertex> vertices; // colour alpha as the file has it (opaque: covers any texture fully)
 	std::vector<GLuint> indices;  // triangles
 };
 

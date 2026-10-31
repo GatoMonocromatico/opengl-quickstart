@@ -176,7 +176,6 @@ void addGltfNode(const cgltf_node* node, ModelData& out)
 					cgltf_accessor_read_float(col, i, rgba, cgltf_num_components(col->type));
 					c = base * glm::make_vec4(rgba);
 				}
-				c.a = 1.0f;
 				const glm::vec3 n = nrm ? glm::normalize(normalMat * n3) : glm::vec3(0.0f);
 				part.vertices.push_back(makeVertex(glm::vec3(world * glm::vec4(p3, 1.0f)), n, c));
 			}

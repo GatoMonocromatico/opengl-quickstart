@@ -291,8 +291,10 @@ drone.Draw(shader, camera, transform);   // every part, one call
 - **STL**, binary or ASCII: one light-grey part with facet normals.
 - Units are the file's own: glTF is in metres with +Y up, STL is often in millimetres; scale it
   with the transform you draw it with.
-- Colours land in `Vertex::color` with alpha 1, so with the stock `default.frag` they cover the
-  (unbound) texture; a shader that only uses `aColor` and `aNormal` works as is.
+- Colours land in `Vertex::color` with the file's alpha (`COLOR_0` times the base colour; STL: 1).
+  The stock `default.frag` reads that alpha as colour over texture, so an opaque colour covers the
+  (unbound) texture; a shader that only uses `aColor` and `aNormal` can read it as opacity instead
+  (with blending on, see-through triangles drawn last).
 - `render/ModelData.h` is the GL-free half (`loadModelData`), for tools and tests.
 - `Mesh` normally recomputes flat normals from the triangle winding; pass
   `generateNormals = false` to its constructor to keep yours (`Model` does).
