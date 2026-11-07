@@ -10,6 +10,7 @@
 // and GL_REPEAT there would wrap the image around onto itself.
 
 #include "util/DebugLog.h"
+#include "gpu/GL.h"
 #include <glad/glad.h>
 
 class Framebuffer
@@ -33,6 +34,15 @@ public:
 	// Rebinds the screen target. Callers must restore their own viewport.
 	static void Unbind();
 	void Delete();
+
+	// colorTex as a gpu:: handle on device, for gpu passes and Painter2D::image
+	// (GL keeps owning the texture). Its rows are GL's: the bottom one first, so
+	// sample it with v flipped. Released by Delete().
+	gpu::Texture color(gpu::Device& device = gpu::gl::contextDevice());
+
+private:
+	gpu::Device* gpuDevice_ = nullptr;
+	gpu::Texture gpuColor_;
 };
 
 // A colour texture filled by copying out of whatever is currently drawn on the
@@ -52,4 +62,12 @@ public:
 	// Sizes (or resizes) the texture and copies the current framebuffer into it.
 	void capture(int w, int h);
 	void Delete();
+
+	// texture as a gpu:: handle on device (GL keeps owning it); rows bottom first,
+	// like Framebuffer::color. Released by Delete().
+	gpu::Texture color(gpu::Device& device = gpu::gl::contextDevice());
+
+private:
+	gpu::Device* gpuDevice_ = nullptr;
+	gpu::Texture gpuColor_;
 };

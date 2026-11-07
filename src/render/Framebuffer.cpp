@@ -66,8 +66,32 @@ void Framebuffer::Unbind()
 	glBindFramebuffer(GL_FRAMEBUFFER, screenTarget);
 }
 
+// One wrap per object and device; the GL name never changes (resizes reuse it).
+static gpu::Texture wrapOnce(gpu::Device& device, unsigned name, gpu::Device*& dev, gpu::Texture& handle)
+{
+	if (!name) return {};
+	if (dev != &device)
+	{
+		if (dev && handle) dev->release(handle);
+		dev = &device;
+		handle = gpu::gl::wrap(device, name);
+	}
+	return handle;
+}
+
+static void unwrap(gpu::Device*& dev, gpu::Texture& handle)
+{
+	if (dev && handle) dev->release(handle);
+	dev = nullptr;
+	handle = {};
+}
+
+gpu::Texture Framebuffer::color(gpu::Device& device) { return wrapOnce(device, colorTex, gpuDevice_, gpuColor_); }
+gpu::Texture ScreenCapture::color(gpu::Device& device) { return wrapOnce(device, texture, gpuDevice_, gpuColor_); }
+
 void Framebuffer::Delete()
 {
+	unwrap(gpuDevice_, gpuColor_);
 	if (colorTex) glDeleteTextures(1, &colorTex);
 	if (depthRBO) glDeleteRenderbuffers(1, &depthRBO);
 	if (ID) glDeleteFramebuffers(1, &ID);
@@ -109,6 +133,7 @@ void ScreenCapture::capture(int w, int h)
 
 void ScreenCapture::Delete()
 {
+	unwrap(gpuDevice_, gpuColor_);
 	if (texture) glDeleteTextures(1, &texture);
 	texture = 0;
 	width = height = 0;

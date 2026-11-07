@@ -2,7 +2,7 @@
 // (top-left origin for targets, textures, viewports and scissors; depth 0..1),
 // uniform blocks, samplers, instancing, indices, culling through the flip, blend,
 // the GL natives and the state a pass leaves behind; Painter2D and ShapedText
-// drawing through it. Needs a display (a hidden
+// drawing through it; Framebuffer and ScreenCapture as gpu:: textures. Needs a display (a hidden
 // window holds the context); without one it exits 77 (skipped).
 
 #include "core/Window.h"
@@ -275,6 +275,44 @@ static void testPainterShapedText()
 	fb.Delete();
 }
 
+// Framebuffer and ScreenCapture as gpu:: textures, drawn by Painter2D::image
+static void testFramebufferBridge()
+{
+	gpu::Device& dev = gpu::gl::contextDevice();
+	Framebuffer src, dst;
+	src.create(8, 8);
+	dst.create(8, 8);
+	src.Bind();
+	glViewport(0, 0, 8, 8);
+	glClearColor(0, 1, 0, 1);
+	glClear(GL_COLOR_BUFFER_BIT);
+	ScreenCapture cap;
+	cap.capture(8, 8); // a copy of src while it's bound
+	CHECK(gpu::gl::native(dev, src.color()) == src.colorTex);
+	CHECK(src.color().id == src.color().id); // wrapped once
+	CHECK(gpu::gl::native(dev, cap.color()) == cap.texture);
+
+	ui::Painter2D painter;
+	painter.create();
+	dst.Bind();
+	glClearColor(0, 0, 0, 1);
+	glClear(GL_COLOR_BUFFER_BIT);
+	painter.begin(8, 8);
+	painter.image(src.color(), 0, 0, 4, 8);
+	painter.image(cap.color(), 4, 0, 4, 8, glm::vec4(1, 0, 1, 1)); // tinted: green times magenta is black
+	painter.end();
+	uint8_t px[8 * 8 * 4];
+	glReadPixels(0, 0, 8, 8, GL_RGBA, GL_UNSIGNED_BYTE, px);
+	Framebuffer::Unbind();
+	CHECK(is(RGBA{ px[(4 * 8 + 1) * 4], px[(4 * 8 + 1) * 4 + 1], px[(4 * 8 + 1) * 4 + 2], 255 }, 0, 255, 0, 255));
+	CHECK(is(RGBA{ px[(4 * 8 + 6) * 4], px[(4 * 8 + 6) * 4 + 1], px[(4 * 8 + 6) * 4 + 2], 255 }, 0, 0, 0, 255));
+	painter.Delete();
+	src.Delete();
+	dst.Delete();
+	cap.Delete();
+	CHECK(src.color().id == 0); // nothing to wrap once deleted
+}
+
 int main()
 {
 	SDLState state = initialize(64, 64, { .title = "gpu_tests", .hidden = true, .preferDedicatedGpu = false });
@@ -337,6 +375,7 @@ int main()
 		testInstancesIndicesBlend(f);
 		testNativesAndState(f);
 		testPainterShapedText();
+		testFramebufferBridge();
 		CHECK(glGetError() == GL_NO_ERROR);
 
 		bool threw = false;
