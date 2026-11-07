@@ -24,6 +24,7 @@ endif()
 
 # Unicode text: vendored FreeType + HarfBuzz (+ libpng, zlib), built from source.
 include(cmake/TextLibraries.cmake)
+include(cmake/GpuShaders.cmake)
 
 # ---------------------------------------------------------------------------
 # opengl_quickstart: the engine layer apps link against.
@@ -57,6 +58,7 @@ add_library(opengl_quickstart STATIC
     src/ui/Painter2D.cpp
     src/ui/TextEdit.cpp
     src/ui/Wrap.cpp
+    src/gpu/GpuGL.cpp
     src/util/DebugHooks.cpp
     src/util/mathUtils.cpp
 )
@@ -163,6 +165,16 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(loop_tests PRIVATE opengl_quickstart)
     quickstart_setup_executable(loop_tests)
     add_test(NAME loop_tests COMMAND loop_tests)
+
+    # Tests for the gpu:: interface on GL; needs a display (exits 77, skipped, without one)
+    add_executable(gpu_tests tests/gpu_tests.cpp)
+    target_link_libraries(gpu_tests PRIVATE opengl_quickstart)
+    qs_gpu_shaders(gpu_tests "${CMAKE_CURRENT_BINARY_DIR}/gpu-test-shaders"
+        tests/gpu/flat.vert tests/gpu/flat.frag tests/gpu/tex.vert tests/gpu/tex.frag)
+    target_compile_definitions(gpu_tests PRIVATE QS_GPU_TEST_SHADERS="${CMAKE_CURRENT_BINARY_DIR}/gpu-test-shaders/")
+    quickstart_setup_executable(gpu_tests)
+    add_test(NAME gpu_tests COMMAND gpu_tests)
+    set_tests_properties(gpu_tests PROPERTIES SKIP_RETURN_CODE 77)
 
     # Tests for model loading (STL, glTF, GLB), GL-free
     add_executable(model_tests tests/model_tests.cpp src/render/ModelData.cpp src/render/cgltf_impl.c)
