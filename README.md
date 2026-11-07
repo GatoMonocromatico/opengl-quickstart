@@ -115,13 +115,15 @@ text.create(QS_FONT_DIR "MesloLGSNerdFontMono-Regular.ttf", 18.0f, Text::Charset
 - `Charset::Ascii` (default): printable ASCII.
 - `Charset::Latin`: ASCII + Latin-1 Supplement + Latin Extended-A + `✓ ✗ → ← • … – — “ ” ‘ ’`. About 3x the glyphs, so a bigger atlas.
 
-The font must have the glyphs as simple (non-composite) outlines, GlyphGL skips composite ones. `Libraries/include/glyphgl/glyph_atlas.h` carries one local patch (marked `opengl-quickstart patch`): the atlas packer no longer shifts glyphs onto a shared baseline, which hung short glyphs into the next row and cut them (lost descenders, bits of other glyphs). Keep it if GlyphGL is ever updated. `MesloLGSNerdFontMono-Regular.ttf` has all of the Latin set. A codepoint that isn't in the charset is drawn and measured as `?`; control characters and malformed UTF-8 never crash, they draw nothing or `?`.
+The font must have the glyphs as simple (non-composite) outlines, GlyphGL skips composite ones. GlyphGL's rasteriser puts an edge's whole coverage in one pixel, so a stroke thinner than a pixel cancels out at small sizes (Atkinson Hyperlegible at 11 px drew `l` as a dot and `p` as an `o`): `create()` redraws an atlas of 24 px or less from the same rasteriser at 4x, each pixel the mean of its 4x4, with `Libraries/` untouched. GlyphGL packs every atlas into 2048x2048 or more and keeps an RGB copy of it (16 MB a face); `create()` cuts the texture to where the glyphs are (a few hundred kB) and frees the copy. `Libraries/include/glyphgl/glyph_atlas.h` carries one local patch (marked `opengl-quickstart patch`): the atlas packer no longer shifts glyphs onto a shared baseline, which hung short glyphs into the next row and cut them (lost descenders, bits of other glyphs). Keep it if GlyphGL is ever updated. `MesloLGSNerdFontMono-Regular.ttf` has all of the Latin set. A codepoint that isn't in the charset is drawn and measured as `?`; control characters and malformed UTF-8 never crash, they draw nothing or `?`.
 
 Measuring for layout (all UTF-8 aware, byte offsets, `scale` like `draw`):
 
 - `width(s, scale)`: advance of the string.
 - `ascent(scale)` / `descent(scale)`: how far glyphs reach above / below the baseline; `lineHeight()` is the line pitch.
 - `indexAt(s, x, scale)`: byte offset of the caret boundary nearest x, never inside a UTF-8 sequence. Use it to turn a click into a caret.
+
+`draw(s, x, y, color, scale, opacity)` fades the whole string with `opacity` (default 1). For that `Text` builds GlyphGL with its own default fragment shader plus one `opacity` uniform, passed in as a custom effect, so `Libraries/` stays untouched.
 
 `util/Utf8.h` has the codepoint helpers (`utf8::next/prev/snap/count/valid/sanitize`).
 
@@ -141,7 +143,7 @@ float w = t.width("medir");                                     // no rasterisin
 
 - Fonts are file paths (+ face index in a `.ttc`). Finding them is the app's job (fontconfig's `fc-match -f '%{file}|%{index}'` on Linux).
 - Colour emoji fonts with PNG strikes (Noto Color Emoji, 109 px) are scaled to the asked size on the CPU.
-- Text colour alpha works (unlike `Text`); colour glyphs keep their colours and only fade with it.
+- Colour glyphs keep their colours and only fade with the text colour's alpha.
 - Shaping and rasterising need no GL; `texture()` uploads the atlas, `Painter2D::text` calls it for you. The atlas grows from 512 to 4096 px and is rebuilt if it ever fills.
 - `tests/text_tests.cpp` covers fallback, shaping, clusters, atlas growth and emoji size.
 
@@ -151,12 +153,17 @@ float w = t.width("medir");                                     // no rasterisin
 
 | Header | GL | What |
 |---|---|---|
-| `ui/Painter2D.h` | yes | batched rects, rounded rects, outlines, lines, circles in window pixels (top-left origin), `text()`, `pushClip/popClip`; own shader `shaders/ui2d.*` |
+| `ui/Painter2D.h` | yes | batched rects, rounded rects, outlines, lines, circles, images and text in window pixels (top-left origin), in call order; stacks for clip, transform, alpha, dither and an app's own fragment shader; shaders `shaders/ui2d.*` |
 | `ui/TextEdit.h` | no | UTF-8 string + caret + selection: insert, backspace/delete (Ctrl = word), arrows, home/end, up/down over wrapped lines, select all/word, cut/paste text in and out |
 | `ui/Wrap.h` | no | `wrap(text, maxWidth, measure)` -> line ranges (word wrap, long words broken, `\n` kept); `lineOfOffset`, `indexInLine(s)` |
-| `ui/Context.h` | yes | immediate-mode widgets, input, `Theme` |
+| `ui/Context.h` | yes | immediate-mode widgets, input, `Theme`, a pannable zoomable canvas, the redraw rule |
 | `ui/Motion.h` | no | `Tween<T>` and `Spring<T>` (float or glm vectors), `CubicBezier` easing with presets, reduced motion, the shared frame clock |
 | `ui/Loop.h` | no | event loop that sleeps until a frame is due: SDL events, timers (`after`/`every`), watched fds (POSIX), animations, `requestFrame()` |
+| `ui/Anim.h` | no | timers, tweens, springs and rolling numbers by id, eases, and what the loop needs to know to sleep |
+| `ui/CanvasView.h` | no | the camera of a pannable, zoomable view: world to screen and back, zoom at a point, fit |
+| `ui/Geometry.h` | no | `Rect`, `Transform2D` (offset + uniform scale) |
+| `ui/Fonts.h` | yes | `Text` atlases made on first use, by face and pixel size |
+| `ui/Color.h` | no | `rgb(0x283a35)`, `oklch(L, C, hue)` to sRGB |
 
 ```cpp
 ui::Painter2D painter;  painter.create();
@@ -182,15 +189,23 @@ while (running)
 
 See `example/widgets.cpp` for a full loop.
 
-Widgets, all taking a pixel `Rect`: `button`, `checkbox`, `progressBar`, `textField` (single line, or `.multiline` with `.wrap`; caret, selection, mouse click / drag / double-click word / triple-click line, Ctrl+A/C/X/V, scrolls to the caret), `tabBar` (returns `clicked` / `closed` index), `label`, `beginScroll` / `endScroll`. Widgets are identified by their label or id string; `"Text##id"` shows `Text`, `pushId()` scopes ids in loops. `Theme` holds colors, padding, radius and font scale.
+Widgets, all taking a pixel `Rect`: `button`, `checkbox`, `progressBar`, `textField` (single line, or `.multiline` with `.wrap`; caret, selection, mouse click / drag / double-click word / triple-click line, Ctrl+A/C/X/V, scrolls to the caret; `.selectOnFocus` selects it all when it's focused some way other than a click, for a rename), `tabBar` (returns `clicked` / `closed` index), `label`, `beginScroll` / `endScroll`. Widgets are identified by their label or id string; `"Text##id"` shows `Text`, `pushId()` scopes ids in loops. `Theme` holds colors, padding, radius and font scale.
 
-Mouse helpers for custom widgets, the same ones the widgets use: `hovered(rect)`, `pressed`, `released`, `doubleClicked`, `mouseDown`, `dragDelta()`, `wheel()` / `consumeWheel()`, `pushClip/popClip` (clips hit-testing and drawing together).
+Mouse helpers for custom widgets, the same ones the widgets use: `hovered(rect)`, `pressed`, `released`, `doubleClicked`, `mouseDown`, `dragDelta()`, `wheel()` / `consumeWheel()`, `pushClip/popClip` (clips hit-testing and drawing together). `clickArea(rect, id, &held)` is an invisible button for a widget the app draws itself: it takes the press like `button` (so a canvas under it doesn't pan), is true on the click, and `held` says it's being pressed.
 
-Notes: text color has no alpha (GlyphGL's shader takes rgb only). Mouse coordinates are converted to drawable pixels, so high-DPI works. `ui::Context` ignores everything it doesn't handle, the app keeps its own key handling (check `wantsKeyboard()` first).
+Scopes on the context, each a push and a pop:
 
-Demo: `./build/opengl_quickstart_widgets` (`QS_SHOT=<png>` saves a frame and exits, `QS_TAB=0|1|2` picks the tab). Tests for the non-GL parts: `tests/run_tests.sh` or `ctest` in the build dir (`ui_tests`, `model_tests`, `loop_tests`).
+- `pushTransform(offset, scale)`: drawing and hit-testing together, so rects and `mousePos()` are in the pushed units (widgets in a zoomed view still hover and click).
+- `pushDisabled()`: widgets draw but don't react, to the mouse or to keys (what's under a modal).
+- `pushFont(text)`: labels, widgets and the text metrics use another face.
+
+Notes: mouse coordinates are converted to drawable pixels, so high-DPI works. `ui::Context` ignores everything it doesn't handle, the app keeps its own key handling (check `wantsKeyboard()` first). `Theme` also holds `focusWidth`, and two accessibility settings: `motionScale` (1 full, 0 lands every animation at once; handed to `anim` each frame) and `reduceFlashing` (for the app; the module draws no flashes).
+
+Demos: `./build/opengl_quickstart_widgets` (`QS_SHOT=<png>` saves a frame and exits, `QS_TAB=0|1|2` picks the tab) and `./build/opengl_quickstart_motion` (below). Tests for the non-GL parts: `tests/run_tests.sh` or `ctest` in the build dir (`ui_tests`: Utf8, Wrap, TextEdit, Anim, CanvasView, Color, Transform2D; `model_tests`, `loop_tests`, `text_tests`).
 
 ### Animation and the event loop
+
+Two styles share one reduced-motion switch (`motion::setReduced(true)` also lands everything in `ui.anim`): `ui::Tween` / `ui::Spring` below are values the app owns, for a shell or anything retained; `ui.anim` (next section) keys timers, tweens, springs and rolling counters by id, for immediate-mode code.
 
 `ui::Loop` replaces the hand-written `SDL_WaitEventTimeout` loop above and adds timers, file descriptors and animation. It sleeps until something needs a frame, so an idle app uses no CPU or GPU, and while anything animates it hands out frames at vsync:
 
@@ -201,7 +216,7 @@ loop.every(1.0, [&] { loop.requestFrame(); });       // a clock
 loop.watch(fd, [&] { readAll(fd); loop.requestFrame(); });  // a socket; runs on this thread (POSIX)
 
 ui::Spring<glm::vec2> pos{ { 0, 0 } };               // response 0.35 s, damping 0.86
-ui::Tween<float> fade{ 0.0f, 0.22f, ui::ease::fadeIn };
+ui::Tween<float> fade{ 0.0f, 0.22f, ui::curve::fadeIn };
 
 while (loop.next([&](const SDL_Event& e) {
     ui.handleEvent(e);
@@ -217,7 +232,70 @@ while (loop.next([&](const SDL_Event& e) {
 
 `next()` returns true when a frame is due (a `requestFrame()`, a moving tween or spring, an attached `Context` that needs a redraw, a window expose or resize) and false after `quit()` or `SDL_EVENT_QUIT`. Callbacks for timers and fds run on the calling thread. An fd is polled by one helper thread that wakes the loop; it stops polling that fd until its callback has run, so the callback must read what is there, or `cancel()` the watch on EOF.
 
-Tweens and springs are pull-based: nothing registers, they copy like values, and one that isn't drawn costs nothing. `set()` retargets from the current value (and velocity, for springs), so a new target mid-flight never jumps. `Spring(value, response, damping, precision)`: response is the period in seconds, damping 1 means no bounce and below 1 overshoots, precision is in the value's own units (0.001 for 0..1, about 0.1 for pixels). Easing presets match the Sisteme picom curves: `ease::enter`, `fadeIn`, `leave`, `standard`, `linear`; any CSS `CubicBezier{x1, y1, x2, y2}` works. `motion::setReduced(true)` makes every `set()` jump to its target. Tests: `loop_tests`.
+Tweens and springs are pull-based: nothing registers, they copy like values, and one that isn't drawn costs nothing. `set()` retargets from the current value (and velocity, for springs), so a new target mid-flight never jumps. `Spring(value, response, damping, precision)`: response is the period in seconds, damping 1 means no bounce and below 1 overshoots, precision is in the value's own units (0.001 for 0..1, about 0.1 for pixels). Easing presets match the Sisteme picom curves: `curve::enter`, `fadeIn`, `leave`, `standard`, `linear`; any CSS `CubicBezier{x1, y1, x2, y2}` works. `motion::setReduced(true)` makes every `set()` jump to its target. Tests: `loop_tests`.
+
+### Timers and animation by id: `ui::Anim`
+
+`ui.anim` is ticked at `beginFrame` with `SDL_GetTicks()`. Nothing runs between frames: `needsRedraw()` and `waitTimeoutMs()` keep frames coming every `anim.frameMs` (33, so 30 fps) while something in it moves, wake the loop for a timer that's due, and let it sleep after. The loop above doesn't change, and `ui::Loop` picks it up through `loop.attach(ui)`.
+
+```cpp
+ui.anim.start("open", 400, [&] { opened = true; });            // a timer, 0 to 1, done runs once
+float k = ui::ease(ui::Ease::Out, ui.anim.progress("open"));    // 1 once it ended (or never ran)
+float x = ui.anim.tween({ "card", i }, picked == i ? 20.0f : 0.0f, 200);  // eases whenever the target changes
+float y = ui.anim.spring("marker", targetY, 220, 16);           // overshoots, settles
+float n = ui.anim.roll("score", score);                         // a mechanical counter: a unit every 40 ms, hard stops
+float m = ui.anim.roll("gold", gold, { .stepMs = 70, .baseMs = 140, .maxMs = 900, .ease = ui::Ease::Back, .stepped = false });
+ui.anim.after(1800, [&] { hint = false; });                     // waits without drawing frames
+```
+
+- Ids are strings, or a string and an index (`{ "card", i }`); timers, tweens, springs and rolls each have their own.
+- A tween, spring or roll starts on its first target, so nothing animates in when it first shows.
+- A timer started from another's `done` begins where that one ended, so chains don't drift with the frames.
+- `start()` is for things that move (frames come while it runs); `after()` is for waiting (no frames until it's due).
+- `roll(..., &ticks)` says how many whole units it passed since the last call (a tick sound per unit).
+- `ui.minFrameMs` caps every redraw, input included (33 is 30 fps on a software renderer); 0 by default.
+
+### Canvas: a pannable, zoomable view
+
+```cpp
+const ui::CanvasInput in = ui.beginCanvas(view, "chart");     // drag pans, the wheel zooms at the pointer
+for (const Card& c : cards) drawCard(c);                      // world units; ui.hovered(c.rect) works here
+ui.endCanvas();
+if (in.clicked) select(cardAt(in.world));                     // a press that moved less than 3 px
+ui.canvas("chart").fit(worldRect, view, 8);                   // or zoomAt(point, factor, view), min/maxZoom
+ui.flyCanvas("chart", cardCentre, 500);                       // glides there (InOut), a drag cuts it short
+```
+
+Widgets inside take their presses first; a press nobody took is the canvas's. Its origin sits on a whole pixel, so 1 px lines stay crisp at zoom 1, and the wheel keeps the point drawn under the pointer there. For sharp text under a zoom, make the font at the size it's shown and draw it at `1 / zoom` (`ui::Fonts` keeps one atlas per size).
+
+### Painter2D: transforms, alpha, dither, images, an app's own shader
+
+```cpp
+p.pushTransform({ 40, 20 }, 1.5f);   // positions, sizes, radii, line widths, text and clips
+p.pushAlpha(0.5f);                   // multiplies (shapes, images and text alike)
+p.pushDither(0.5f);                  // only the pixels of a 4x4 Bayer pattern under 0.5: a checker
+p.rect(0, 0, 100, 60, ink);
+p.popDither(); p.popAlpha(); p.popTransform();
+p.image(capture.texture, dx, y, w, h, glm::vec4(1), { 0, 1 - y / H, 1, 1 - (y + h) / H });  // a band of a frame
+```
+
+Text goes into the same batch as the shapes (sampling the font's atlas), `Text` and `ShapedText` alike, so its color's alpha counts, it follows the transform, alpha, dither and program, and a row of shapes and labels is one draw call. `Text::draw` itself is unchanged.
+
+An app's own fragment shader draws Painter2D's quads with whatever look it wants:
+
+```cpp
+int foil = p.addProgram("shaders/foil.frag");       // compiled with ui2d.vert
+p.bindTexture(foil, "uLut", lutTexture);            // bound on units 1, 2, ... whenever it draws
+glUseProgram(p.glProgram(foil)); glUniform2f(...);  // its uniforms: before its first quad in a frame
+p.pushProgram(foil);
+p.params({ strength, seed, 0, 0 });                 // per quad: the shader's vParam0 (and vParam1)
+p.roundedRect(x, y, w, h, 2, glm::vec4(1));         // any shape, image or text
+p.popProgram();
+```
+
+The shader starts with `#version 330 core` and `#include <ui2d.glsl>` (angle brackets: the stock shader folder), which declares what each quad carries: `vColor`, `vLocal` (pixels from its centre, along its own axes), `vShape` (half size, radius, border), `vUvRect`, `vMode` (0 shape, 1 image, 2 glyph from `Text`, 3 glyph and 4 colour glyph from `ShapedText`), `vParam0`, `vParam1`, `vPixel` (the pixel in the target, top-left origin); and the helpers `ui2dCoverage()` (the shape's antialiased edge, or a glyph's ink), `ui2dColor()` (what Painter2D's own shader draws), `ui2dUv()` and `ui2dBayer(pixel, cell)` (the 4x4 ordered-dither threshold). See `example/shaders/sheen.frag`.
+
+The motion demo, `./build/opengl_quickstart_motion`, shows all of it: a board of cards on a canvas, a reveal drawn with its own shader and grown by a tween, a marker on a spring, two rolling counters in digit slots (clip + a second font), a modal's dithered checker over a disabled canvas, a fading line (alpha), and a band of the frame blitted back shifted (`ScreenCapture` + `image` with a source rect). It counts the frames it draws, so you can see them stop when nothing moves. `QS_SHOT=<png>` saves a frame `QS_SHOT_MS` (300) in, with a card picked and the counters rolling; `QS_DIM=1` puts the board behind the modal; `QS_SLIP=1` catches the band blit.
 
 ## Repository layout
 
@@ -234,7 +312,7 @@ opengl-quickstart/
 │   │   ├── ModelData.h/.cpp      # model files -> vertex data (no GL; cgltf for glTF, own STL reader)
 │   │   ├── cgltf_impl.c          # the one translation unit that compiles cgltf
 │   │   ├── VAO/VBO/EBO.h/.cpp    # buffer object wrappers (Vertex lives in VBO.h)
-│   │   ├── shaderClass.h/.cpp    # compile/link GLSL; expands `#include "file"` in shaders
+│   │   ├── shaderClass.h/.cpp    # compile/link GLSL; expands `#include "file"` (relative) and `<file>` (stock shaders)
 │   │   ├── texture.h/.cpp        # 2-D texture loading via SDL_image
 │   │   ├── camera.h/.cpp         # FPS-style camera: perspective or ortho proj*view, shader upload
 │   │   ├── Framebuffer.h/.cpp    # offscreen render target + ScreenCapture (copy of the drawn frame)
@@ -243,12 +321,17 @@ opengl-quickstart/
 │   │   ├── point.h/.cpp          # GL_POINTS helper (separate pipeline)
 │   │   └── RoundedCorner2D.h/.cpp # round a triangle-mesh corner in 2D
 │   ├── ui/
-│   │   ├── Painter2D.h/.cpp      # batched 2D shapes + text + clip, shader in shaders/ui2d.*
+│   │   ├── Painter2D.h/.cpp      # batched 2D shapes + images + text; clip, transform, alpha, dither, own shaders
 │   │   ├── TextEdit.h/.cpp       # caret/selection/edit model (no GL)
 │   │   ├── Wrap.h/.cpp           # word wrap over a measure function (no GL)
-│   │   ├── Context.h/.cpp        # immediate-mode widgets, input, Theme
+│   │   ├── Context.h/.cpp        # immediate-mode widgets, input, Theme, canvas, redraw rule
+│   │   ├── Anim.h/.cpp           # timers, tweens, springs, rolling numbers (no GL)
+│   │   ├── CanvasView.h/.cpp     # pan/zoom camera math (no GL)
+│   │   ├── Fonts.h/.cpp          # Text atlases by face and size
+│   │   ├── Geometry.h            # Rect, Transform2D (no GL)
 │   │   ├── Motion.h/.cpp         # tweens, springs, cubic-bezier easing, frame clock (no GL)
-│   │   └── Loop.h/.cpp           # event loop: timers, fd watches, frames on demand (no GL)
+│   │   ├── Loop.h/.cpp           # event loop: timers, fd watches, frames on demand (no GL)
+│   │   └── Color.h               # rgb(hex), oklch (no GL)
 │   └── util/
 │       ├── Utf8.h                # UTF-8 decode / step / validate helpers
 │       ├── DebugLog.h            # zero-cost debug logging macros (see below)
@@ -260,19 +343,21 @@ opengl-quickstart/
 ├── shaders/              # stock shaders, found at runtime through QS_SHADER_DIR
 │   ├── default.vert/.frag  # main mesh pipeline (instancing, lighting, mask alpha)
 │   ├── point.vert/.frag    # GL_POINTS pipeline
-│   └── ui2d.vert/.frag     # Painter2D shapes
+│   ├── ui2d.vert/.frag     # Painter2D's quads
+│   └── ui2d.glsl           # what ui2d.vert hands a fragment shader, and helpers (#include <ui2d.glsl>)
 │
 ├── fonts/                # bundled .ttf fonts for Text, found through QS_FONT_DIR (licenses in fonts/README.md)
 │
 ├── example/              # app-level template: copy these into a new project and grow them
 │   ├── main.cpp          # init, main loop, cleanup
 │   ├── widgets.cpp       # UI widgets demo (opengl_quickstart_widgets), event-driven loop
+│   ├── motion.cpp        # motion demo (opengl_quickstart_motion): Anim, canvas, own shader (shaders/sheen.frag)
 │   ├── GameState.h       # scene objects, FPS
 │   ├── Resources.h/.cpp  # central GPU asset store (shaders, meshes, textures, lights, UBO)
 │   ├── gameObject.h/.cpp # logical entity: indexes a Mesh in Resources + own transform
 │   └── Textures/         # sample textures
 │
-├── tests/                # RoundedCorner2D tests (test.cpp), ui_tests.cpp (Utf8, Wrap, TextEdit), model_tests.cpp (STL, glTF, GLB), text_tests.cpp (ShapedText); run_tests.sh builds and runs them
+├── tests/                # RoundedCorner2D tests (test.cpp), ui_tests.cpp (Utf8, Wrap, TextEdit, Anim, CanvasView, Color, Transform2D), model_tests.cpp (STL, glTF, GLB), text_tests.cpp (ShapedText), loop_tests.cpp (Loop, Motion); run_tests.sh builds and runs them
 ├── Libraries/
 │   ├── include/          # GLAD, GLM, SDL3, SDL3_image, stb, GlyphGL headers
 │   ├── src/              # FreeType, HarfBuzz, libpng, zlib sources (built by cmake/TextLibraries.cmake)

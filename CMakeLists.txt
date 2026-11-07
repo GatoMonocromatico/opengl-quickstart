@@ -48,7 +48,10 @@ add_library(opengl_quickstart STATIC
     src/render/texture.cpp
     src/render/VAO.cpp
     src/render/VBO.cpp
+    src/ui/Anim.cpp
+    src/ui/CanvasView.cpp
     src/ui/Context.cpp
+    src/ui/Fonts.cpp
     src/ui/Loop.cpp
     src/ui/Motion.cpp
     src/ui/Painter2D.cpp
@@ -136,10 +139,16 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(opengl_quickstart_widgets PRIVATE opengl_quickstart)
     quickstart_setup_executable(opengl_quickstart_widgets)
 
-    # Tests for the parts that need no GL: Utf8, Wrap, TextEdit
+    # Motion demo: Anim, the canvas, transforms, alpha, dither, an own shader, a band blit
+    add_executable(opengl_quickstart_motion example/motion.cpp)
+    target_link_libraries(opengl_quickstart_motion PRIVATE opengl_quickstart)
+    target_compile_definitions(opengl_quickstart_motion PRIVATE MOTION_SHADER_DIR="${QS_ROOT}/example/shaders/")
+    quickstart_setup_executable(opengl_quickstart_motion)
+
+    # Tests for the parts that need no GL: Utf8, Wrap, TextEdit, Anim, CanvasView, Color
     enable_testing()
-    add_executable(ui_tests tests/ui_tests.cpp src/ui/TextEdit.cpp src/ui/Wrap.cpp)
-    target_include_directories(ui_tests PRIVATE "${QS_ROOT}/src")
+    add_executable(ui_tests tests/ui_tests.cpp src/ui/TextEdit.cpp src/ui/Wrap.cpp src/ui/Anim.cpp src/ui/CanvasView.cpp)
+    target_include_directories(ui_tests PRIVATE "${QS_ROOT}/src" "${QS_INCLUDE_DIR}")
     add_test(NAME ui_tests COMMAND ui_tests)
 
     # Tests for ShapedText's GL-free half (fallback, shaping, atlas), bundled fonts only

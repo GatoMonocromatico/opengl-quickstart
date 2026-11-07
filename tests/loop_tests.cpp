@@ -24,7 +24,7 @@ static void at(double t) { gTime = t; ui::motion::frame(); }
 
 static void testBezier()
 {
-	using namespace ui::ease;
+	using namespace ui::curve;
 	CHECK(linear(0) == 0 && linear(1) == 1);
 	CHECK(near(linear(0.3f), 0.3f) && near(linear(0.77f), 0.77f));
 	// CSS ease (0.25, 0.1, 0.25, 1) at x = 0.5 is ~0.8024
@@ -49,7 +49,7 @@ static void testTween()
 {
 	ui::motion::setClock([] { return gTime; });
 	at(0);
-	ui::Tween<float> t{ 0.0f, 1.0f, ui::ease::linear };
+	ui::Tween<float> t{ 0.0f, 1.0f, ui::curve::linear };
 	CHECK(t.value() == 0 && !t.moving() && !ui::motion::wantsFrame());
 
 	gTime = 10; // set() at clock 10 while the last frame was at 0: no jump on the next frame
@@ -72,7 +72,7 @@ static void testTween()
 	at(11.75);
 	CHECK(t.value() == 0 && !t.moving() && !ui::motion::wantsFrame());
 
-	ui::Tween<glm::vec4> c{ glm::vec4(0), 1.0f, ui::ease::linear };
+	ui::Tween<glm::vec4> c{ glm::vec4(0), 1.0f, ui::curve::linear };
 	at(12);
 	c.set(glm::vec4(1, 0.5f, 0, 1));
 	at(12.5);

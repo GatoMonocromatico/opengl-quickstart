@@ -8,6 +8,7 @@ its own license, read from the font's name table.
 | File | Family | License |
 |---|---|---|
 | Martius-LV9L4.ttf | Martius (GGBotNet) | OFL 1.1 |
+| AtkinsonHyperlegible-Regular/Bold.ttf | Atkinson Hyperlegible (Braille Institute) | OFL 1.1, the text in AtkinsonHyperlegible-OFL.txt |
 | MesloLGSNerdFontMono-Regular.ttf | MesloLGS Nerd Font Mono | Apache 2.0 (Meslo), MIT (Nerd Fonts patch) |
 | Anton-Regular.ttf | Anton | OFL 1.1 |
 | ArchivoBlack-Regular.ttf | Archivo Black | OFL 1.1 |

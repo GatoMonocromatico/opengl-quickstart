@@ -26,8 +26,9 @@ std::string getFileContents(const char* filename)
 }
 
 // GLSL has no #include, so `#include "file"` lines are expanded here, relative to
-// the file doing the including. Every file gets its own #line source number, so a
-// compile error like "2(14)" means line 14 of files[2].
+// the file doing the including; `#include <file>` is one of the stock shaders in
+// QS_SHADER_DIR (an app's shader using ui2d.glsl). Every file gets its own #line
+// source number, so a compile error like "2(14)" means line 14 of files[2].
 static std::string expandIncludes(const std::string& path, std::vector<std::string>& files)
 {
 	const int sourceIndex = static_cast<int>(files.size());
@@ -45,9 +46,10 @@ static std::string expandIncludes(const std::string& path, std::vector<std::stri
 		const size_t first = line.find_first_not_of(" \t");
 		if (first != std::string::npos && line.compare(first, 8, "#include") == 0)
 		{
-			const size_t a = line.find('"');
-			const size_t b = line.find('"', a + 1);
-			out += expandIncludes(dir + line.substr(a + 1, b - a - 1), files);
+			const size_t a = line.find_first_of("\"<", first + 8);
+			const size_t b = line.find_first_of("\">", a + 1);
+			const std::string from = line[a] == '<' ? std::string(QS_SHADER_DIR) : dir;
+			out += expandIncludes(from + line.substr(a + 1, b - a - 1), files);
 			out += "#line " + std::to_string(lineNo + 1) + " " + std::to_string(sourceIndex) + "\n";
 			continue;
 		}

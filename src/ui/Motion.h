@@ -5,7 +5,7 @@
 // Every animation reads the frame clock, motion::now(), which the loop advances once
 // at the start of each frame, so everything drawn in one frame sees the same time.
 //
-//   ui::Tween<float> fade{ 0.0f, 0.22f, ui::ease::fadeIn };
+//   ui::Tween<float> fade{ 0.0f, 0.22f, ui::curve::fadeIn };
 //   ui::Spring<glm::vec2> pos{ { 0, 0 } };
 //   onOpen:  fade.set(1); pos.set({ 300, 0 });     // from wherever they are now
 //   draw:    painter.roundedRect(pos.value().x, ..., { 1, 1, 1, fade.value() });
@@ -53,7 +53,7 @@ struct CubicBezier
 	float operator()(float t) const; // eased progress for linear progress t in [0, 1]
 };
 
-namespace ease
+namespace curve
 {
 	inline constexpr CubicBezier linear{ 0, 0, 1, 1 };
 	// Sisteme's picom curves, so shell surfaces move the way windows do
@@ -76,7 +76,7 @@ namespace detail
 template <class T> class Tween
 {
 public:
-	explicit Tween(T value = T{}, float duration = 0.25f, CubicBezier curve = ease::enter)
+	explicit Tween(T value = T{}, float duration = 0.25f, CubicBezier curve = ui::curve::enter)
 		: duration(duration), curve(curve), from_(value), to_(value) {}
 
 	float duration;   // seconds
