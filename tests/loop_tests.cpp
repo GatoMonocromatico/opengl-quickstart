@@ -209,6 +209,70 @@ static void testLoop()
 	CHECK(!q.next(onEvent) && events == before + 1);
 }
 
+// several windows: frames per window, motion attributed to the window drawing it, the cap
+static void testWindows()
+{
+	ui::Loop loop;
+	const auto none = [](const SDL_Event&) {};
+	CHECK(loop.next(none) && loop.due(1) && loop.due(2)); // the first frame: all of them
+
+	loop.requestFrame(2);
+	CHECK(loop.next(none) && !loop.due(1) && loop.due(2));
+
+	// window 1's tween is still moving after its drawing: only window 1 again
+	ui::Tween<float> slide{ 0.0f, 0.2f };
+	slide.set(1); // set from an event handler, outside any window: one frame of all of them
+	CHECK(loop.next(none) && loop.due(1) && loop.due(2));
+	loop.beginWindow(1);
+	slide.value();
+	loop.endWindow(1);
+	loop.beginWindow(2);
+	loop.endWindow(2); // nothing moves there
+	CHECK(!ui::motion::wantsFrame()); // attributed, not global
+	CHECK(loop.next(none) && loop.due(1) && !loop.due(2));
+	slide.snap(1);
+	CHECK(loop.next(none)); // the snap's own frame
+
+	// an expose event makes its window due
+	SDL_Event ex{};
+	ex.type = SDL_EVENT_WINDOW_EXPOSED;
+	ex.window.windowID = 7;
+	SDL_PushEvent(&ex);
+	loop.beginWindow(1);
+	slide.value();
+	loop.endWindow(1);
+	CHECK(loop.next(none) && loop.due(7) && !loop.due(1));
+
+	// motion outside the brackets still means every window
+	ui::Tween<float> loose{ 0.0f, 0.2f };
+	loose.set(1);
+	loose.value();
+	CHECK(loop.next(none) && loop.due(1) && loop.due(2));
+	loose.snap(1);
+	loose.value();
+
+	// capped at 50 fps: ten requested frames take at least 9 intervals
+	loop.setMaxFps(50);
+	loop.requestFrame();
+	CHECK(loop.next(none));
+	const Uint64 t0 = SDL_GetTicks();
+	for (int i = 0; i < 10; i++)
+	{
+		loop.requestFrame();
+		CHECK(loop.next(none));
+	}
+	const Uint64 took = SDL_GetTicks() - t0;
+	CHECK(took >= 180 && took < 400);
+	loop.setMaxFps(0);
+	const Uint64 t1 = SDL_GetTicks();
+	for (int i = 0; i < 10; i++)
+	{
+		loop.requestFrame();
+		CHECK(loop.next(none));
+	}
+	CHECK(SDL_GetTicks() - t1 < 50); // uncapped: no waiting
+}
+
 int main()
 {
 	testBezier();
@@ -216,6 +280,7 @@ int main()
 	testSpring();
 	if (!SDL_Init(SDL_INIT_EVENTS)) { std::cout << "SDL_Init: " << SDL_GetError() << "\n"; return 1; }
 	testLoop();
+	testWindows();
 	SDL_Quit();
 	std::cout << gPassed << " passed, " << gFailed << " failed\n";
 	return gFailed ? 1 : 0;

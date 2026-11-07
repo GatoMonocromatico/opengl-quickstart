@@ -33,6 +33,7 @@ namespace motion
 
 	bool wantsFrame() { return gWant; }
 	void requestFrame() { gWant = true; }
+	void setWantsFrame(bool want) { gWant = want; }
 
 	bool reduced() { return gReduced; }
 	void setReduced(bool on) { gReduced = on; }

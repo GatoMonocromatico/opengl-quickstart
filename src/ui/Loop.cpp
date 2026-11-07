@@ -206,9 +206,22 @@ void Loop::runTimers()
 	}
 }
 
+void Loop::beginWindow(SDL_WindowID window)
+{
+	(void)window;
+	wantOutside_ = motion::wantsFrame();
+	motion::setWantsFrame(false);
+}
+
+void Loop::endWindow(SDL_WindowID window)
+{
+	if (motion::wantsFrame()) animating_.insert(window); // still moving there: that window again
+	motion::setWantsFrame(wantOutside_);
+}
+
 bool Loop::frameDue() const
 {
-	if (frameRequested_ || motion::wantsFrame()) return true;
+	if (frameRequested_ || motion::wantsFrame() || !pending_.empty() || !animating_.empty()) return true;
 	for (const Context* c : contexts_)
 		if (c->needsRedraw()) return true;
 	return false;
@@ -216,9 +229,14 @@ bool Loop::frameDue() const
 
 int Loop::waitMs() const
 {
-	if (frameDue()) return 0;
-	double ms = -1;
 	const double now = motion::clock();
+	if (frameDue())
+	{
+		// capped: what's left of the interval, a frame once under half a millisecond
+		const double left = lastFrame_ + minInterval_ - now;
+		return minInterval_ > 0 && left >= 0.0005 ? std::max(1, static_cast<int>(left * 1000.0)) : 0;
+	}
+	double ms = -1;
 	for (const Timer& t : timers_)
 	{
 		const double d = std::max(0.0, (t.due - now) * 1000.0);
@@ -246,7 +264,8 @@ void Loop::dispatch(const SDL_Event& e, const std::function<void(const SDL_Event
 	case SDL_EVENT_WINDOW_EXPOSED:
 	case SDL_EVENT_WINDOW_SHOWN:
 	case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
-		frameRequested_ = true;
+		if (e.window.windowID) pending_.insert(e.window.windowID);
+		else frameRequested_ = true;
 		break;
 	default: break;
 	}
@@ -267,8 +286,15 @@ bool Loop::next(const std::function<void(const SDL_Event&)>& onEvent)
 			// a frame is due: take what's queued without blocking, then draw
 			while (!quit_ && SDL_PollEvent(&e)) dispatch(e, onEvent);
 			if (quit_) return false;
+			allDue_ = frameRequested_ || motion::wantsFrame();
+			for (const Context* c : contexts_) allDue_ = allDue_ || c->needsRedraw();
+			due_ = std::move(pending_);
+			due_.insert(animating_.begin(), animating_.end());
+			pending_.clear();
+			animating_.clear();
 			frameRequested_ = false;
 			motion::frame();
+			lastFrame_ = motion::now();
 			frames_++;
 			return true;
 		}
