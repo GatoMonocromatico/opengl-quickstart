@@ -53,6 +53,8 @@ add_library(opengl_quickstart STATIC
     src/ui/CanvasView.cpp
     src/ui/Context.cpp
     src/ui/Fonts.cpp
+    src/ui/Image.cpp
+    src/ui/ImageAtlas.cpp
     src/ui/Loop.cpp
     src/ui/Motion.cpp
     src/ui/Painter2D.cpp
@@ -170,6 +172,12 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(loop_tests PRIVATE opengl_quickstart)
     quickstart_setup_executable(loop_tests)
     add_test(NAME loop_tests COMMAND loop_tests)
+
+    # Tests for ui/Image (SVG/PNG, premultiplying, resampling) and ui/ImageAtlas packing
+    add_executable(image_tests tests/image_tests.cpp)
+    target_link_libraries(image_tests PRIVATE opengl_quickstart)
+    quickstart_setup_executable(image_tests)
+    add_test(NAME image_tests COMMAND image_tests)
 
     # Tests for the gpu:: interface on GL; needs a display (exits 77, skipped, without one)
     add_executable(gpu_tests tests/gpu_tests.cpp)

@@ -2,6 +2,7 @@
 #include "render/Text.h"
 #include "render/ShapedText.h"
 #include "render/shaderClass.h"
+#include "ui/ImageAtlas.h"
 #include "gpu/GL.h"
 
 #include <glad/glad.h>
@@ -250,6 +251,28 @@ void Painter2D::image(gpu::Texture texture, float x, float y, float w, float h, 
 	if (w <= 0 || h <= 0 || !texture) return;
 	useTexture(texture);
 	quad(x + w * 0.5f, y + h * 0.5f, w * 0.5f, h * 0.5f, 1, 0, 0, 0, tint, 1.0f, uv);
+}
+
+void Painter2D::atlasQuad(ImageAtlas& atlas, int id, float x, float y, float w, float h, const glm::vec4& color, float mode)
+{
+	if (w <= 0 || h <= 0 || !atlas.valid(id)) return;
+	// what's pending from this atlas draws before it grows or changes under it
+	if (tex_ && tex_.id == atlas.current().id && atlas.dirty()) flush();
+	useTexture(atlas.texture(*dev_));
+	const Transform2D& t = transform();
+	const glm::vec2 p = glm::round(t.apply(glm::vec2(x, y))); // whole pixels, like glyphs
+	const float hx = w * 0.5f * t.scale, hy = h * 0.5f * t.scale;
+	emit(p.x + hx, p.y + hy, hx, hy, 1, 0, 0, 0, color, 0.0f, mode, atlas.uv(id));
+}
+
+void Painter2D::image(ImageAtlas& atlas, int id, float x, float y, float w, float h, float alpha)
+{
+	atlasQuad(atlas, id, x, y, w, h, glm::vec4(1.0f, 1.0f, 1.0f, alpha), 4.0f); // premultiplied colours
+}
+
+void Painter2D::mask(ImageAtlas& atlas, int id, float x, float y, float w, float h, const glm::vec4& color)
+{
+	atlasQuad(atlas, id, x, y, w, h, color, 3.0f); // alpha as coverage
 }
 
 void Painter2D::text(Text& font, std::string_view s, float x, float y, const glm::vec4& color, float scale)
