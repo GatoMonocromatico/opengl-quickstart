@@ -15,8 +15,11 @@ It is two things: a static library (`opengl_quickstart`) that apps pull in as a 
 | **GLM** | Vectors, matrices, `lookAt`, `perspective` |
 | **GlyphGL** | TrueType text for `Text` (header-only, MIT) |
 | **cgltf** | glTF 2.0 parsing for `Model` (single header, MIT) |
+| **FreeType** | Glyph loading and rasterising for `ShapedText` (source in `Libraries/src/freetype`, FTL) |
+| **HarfBuzz** | Text shaping for `ShapedText` (single-file amalgamation in `Libraries/src/harfbuzz`, MIT) |
+| **libpng + zlib** | Only for FreeType's PNG strikes: colour emoji fonts (source in `Libraries/src`) |
 
-All headers are under `Libraries/include/`. Pre-built libraries live under `Libraries/lib_linux/lib/` (Linux) and `Libraries/lib_win/lib/` (Windows). CMake picks the right folder automatically.
+All headers are under `Libraries/include/`. FreeType, HarfBuzz, libpng and zlib are vendored as source under `Libraries/src/` and built with the project (`cmake/TextLibraries.cmake`), so Unicode text needs no system installs either. Pre-built libraries live under `Libraries/lib_linux/lib/` (Linux) and `Libraries/lib_win/lib/` (Windows). CMake picks the right folder automatically.
 
 Language: **C++20**.
 
@@ -122,6 +125,26 @@ Measuring for layout (all UTF-8 aware, byte offsets, `scale` like `draw`):
 
 `util/Utf8.h` has the codepoint helpers (`utf8::next/prev/snap/count/valid/sanitize`).
 
+## Unicode text (ShapedText)
+
+`Text` covers a Latin charset from one font. For anything else (accents beyond Latin, CJK, colour emoji, icon fonts, ligatures) use `ShapedText`: HarfBuzz shapes the string, FreeType rasterises glyphs into one premultiplied RGBA atlas, and a list of fonts works as a fallback chain. Each codepoint uses the first font that has it; joiners, variation selectors, skin tones and combining marks stay with the character before them, so emoji sequences and accents shape correctly. Left-to-right only for now.
+
+```cpp
+ShapedText t;
+t.create({ { "/path/Recursive.ttc", 3 },                       // primary: sets the line metrics
+           { "/path/SymbolsNerdFont-Regular.ttf" },          // icons
+           { "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf" },
+           { "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc" } }, 18.0f);
+painter.text(t, "olá 🙂 日本語 \uF1EB", 20, 40, { 1, 1, 1, 1 }); // y = baseline; returns the advance
+float w = t.width("medir");                                     // no rasterising
+```
+
+- Fonts are file paths (+ face index in a `.ttc`). Finding them is the app's job (fontconfig's `fc-match -f '%{file}|%{index}'` on Linux).
+- Colour emoji fonts with PNG strikes (Noto Color Emoji, 109 px) are scaled to the asked size on the CPU.
+- Text colour alpha works (unlike `Text`); colour glyphs keep their colours and only fade with it.
+- Shaping and rasterising need no GL; `texture()` uploads the atlas, `Painter2D::text` calls it for you. The atlas grows from 512 to 4096 px and is rebuilt if it ever fills.
+- `tests/text_tests.cpp` covers fallback, shaping, clusters, atlas growth and emoji size.
+
 ## UI widgets
 
 `src/ui/` is a small 2D layer. The pieces work on their own, so a custom canvas can use `Painter2D` + `Text` + `TextEdit` + `wrap` without any widgets.
@@ -216,9 +239,10 @@ opengl-quickstart/
 │   ├── gameObject.h/.cpp # logical entity: indexes a Mesh in Resources + own transform
 │   └── Textures/         # sample textures
 │
-├── tests/                # RoundedCorner2D tests (test.cpp), ui_tests.cpp (Utf8, Wrap, TextEdit), model_tests.cpp (STL, glTF, GLB); run_tests.sh builds and runs them
+├── tests/                # RoundedCorner2D tests (test.cpp), ui_tests.cpp (Utf8, Wrap, TextEdit), model_tests.cpp (STL, glTF, GLB), text_tests.cpp (ShapedText); run_tests.sh builds and runs them
 ├── Libraries/
 │   ├── include/          # GLAD, GLM, SDL3, SDL3_image, stb, GlyphGL headers
+│   ├── src/              # FreeType, HarfBuzz, libpng, zlib sources (built by cmake/TextLibraries.cmake)
 │   ├── lib_linux/lib/    # Linux shared objects
 │   └── lib_win/lib/      # Windows import libs + DLLs
 └── run.sh                # build + run the example under GDB (Linux only)

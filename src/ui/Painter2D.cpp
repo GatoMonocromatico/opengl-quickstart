@@ -1,5 +1,6 @@
 #include "ui/Painter2D.h"
 #include "render/Text.h"
+#include "render/ShapedText.h"
 #include "render/shaderClass.h"
 
 #include <algorithm>
@@ -36,10 +37,43 @@ void Painter2D::create()
 	}
 	glBindVertexArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+	// ShapedText glyphs: pos(2) uv(2) color(4) isColor(1)
+	glyphShader_ = std::make_unique<Shader>(QS_SHADER_DIR "glyph2d.vert", QS_SHADER_DIR "glyph2d.frag");
+	glyphScreenLoc_ = glGetUniformLocation(glyphShader_->ID, "uScreen");
+	glGenVertexArrays(1, &glyphVao_);
+	glGenBuffers(1, &glyphVbo_);
+	glBindVertexArray(glyphVao_);
+	glBindBuffer(GL_ARRAY_BUFFER, glyphVbo_);
+	const GLsizei gstride = 9 * sizeof(float);
+	const int gsizes[4] = { 2, 2, 4, 1 };
+	size_t goffset = 0;
+	for (int i = 0; i < 4; i++)
+	{
+		glVertexAttribPointer(i, gsizes[i], GL_FLOAT, GL_FALSE, gstride, reinterpret_cast<void*>(goffset * sizeof(float)));
+		glEnableVertexAttribArray(i);
+		goffset += gsizes[i];
+	}
+	glBindVertexArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+// Colour blends with SRC_ALPHA; alpha accumulates as (ONE, ONE_MINUS_SRC_ALPHA) so
+// the target's alpha is the real coverage. With a plain SRC_ALPHA blend on alpha,
+// a see-through (ARGB) window ends up with colour > alpha and the compositor,
+// which reads it as premultiplied, shows it too bright.
+static void setBlend()
+{
+	glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 }
 
 void Painter2D::Delete()
 {
+	if (glyphShader_) glyphShader_->Delete();
+	glyphShader_.reset();
+	if (glyphVbo_) glDeleteBuffers(1, &glyphVbo_);
+	if (glyphVao_) glDeleteVertexArrays(1, &glyphVao_);
+	glyphVbo_ = glyphVao_ = 0;
 	if (shader_) shader_->Delete();
 	shader_.reset();
 	if (vbo_) glDeleteBuffers(1, &vbo_);
@@ -58,7 +92,7 @@ void Painter2D::begin(int w, int h)
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_SCISSOR_TEST);
 	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	setBlend();
 }
 
 void Painter2D::end()
@@ -74,7 +108,7 @@ void Painter2D::flush()
 	if (verts_.empty() || !shader_) { verts_.clear(); return; }
 	glDisable(GL_DEPTH_TEST); // Text::draw turns it back on
 	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	setBlend();
 	shader_->Activate();
 	glUniform2f(screenLoc_, static_cast<float>(w_), static_cast<float>(h_));
 	glBindVertexArray(vao_);
@@ -168,6 +202,49 @@ void Painter2D::text(Text& font, std::string_view s, float x, float y, const glm
 	flush();
 	font.setViewport(w_, h_);
 	font.draw(s, x, y, glm::vec3(color), scale);
+}
+
+float Painter2D::text(ShapedText& font, std::string_view s, float x, float y, const glm::vec4& color)
+{
+	if (!font.ready() || !glyphShader_) return 0.0f;
+	flush();
+	const ShapedText::Line line = font.shape(s);
+	if (line.glyphs.empty()) return line.advance;
+	const unsigned atlas = font.texture(); // after shape(): it may have added glyphs
+
+	glyphVerts_.clear();
+	const float ox = std::round(x), oy = std::round(y);
+	for (const ShapedText::Glyph& g : line.glyphs)
+	{
+		const float x0 = ox + g.x, y0 = oy + g.y, x1 = x0 + g.w, y1 = y0 + g.h;
+		const float c = g.color ? 1.0f : 0.0f;
+		const float v[6][9] = {
+			{ x0, y0, g.u0, g.v0, color.r, color.g, color.b, color.a, c },
+			{ x1, y0, g.u1, g.v0, color.r, color.g, color.b, color.a, c },
+			{ x1, y1, g.u1, g.v1, color.r, color.g, color.b, color.a, c },
+			{ x0, y0, g.u0, g.v0, color.r, color.g, color.b, color.a, c },
+			{ x1, y1, g.u1, g.v1, color.r, color.g, color.b, color.a, c },
+			{ x0, y1, g.u0, g.v1, color.r, color.g, color.b, color.a, c },
+		};
+		glyphVerts_.insert(glyphVerts_.end(), &v[0][0], &v[0][0] + 6 * 9);
+	}
+
+	glDisable(GL_DEPTH_TEST);
+	glEnable(GL_BLEND);
+	glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA); // premultiplied
+	glyphShader_->Activate();
+	glUniform2f(glyphScreenLoc_, static_cast<float>(w_), static_cast<float>(h_));
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, atlas);
+	glBindVertexArray(glyphVao_);
+	glBindBuffer(GL_ARRAY_BUFFER, glyphVbo_);
+	glBufferData(GL_ARRAY_BUFFER, glyphVerts_.size() * sizeof(float), glyphVerts_.data(), GL_STREAM_DRAW);
+	glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(glyphVerts_.size() / 9));
+	glBindVertexArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindTexture(GL_TEXTURE_2D, 0);
+	setBlend();
+	return line.advance;
 }
 
 void Painter2D::applyClip()
