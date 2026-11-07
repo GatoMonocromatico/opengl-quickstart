@@ -5,8 +5,9 @@
 // Coordinates are pixels of the target, origin top-left, y down, through the
 // current transform. Everything goes into one batch that is drawn when it has to
 // be flushed (a clip, program or dither change, another texture, end()), so draw
-// order is call order. Needs a GL context for create(); uses shaders/ui2d.*
-// from QS_SHADER_DIR.
+// order is call order. It draws through gpu:: (shaders/gpu/ui2d.*, built by
+// qs_gpu_shaders) into whatever framebuffer is bound, on the GL backend; needs a
+// GL context for create().
 //
 //   painter.begin(w, h);
 //   painter.roundedRect(10, 10, 200, 40, 6, {0.2f, 0.3f, 0.5f, 1});
@@ -16,10 +17,12 @@
 // The state is a stack each (clip, transform, alpha, dither, program): every push
 // needs its pop before end().
 
+#include "gpu/Gpu.h"
 #include "ui/Geometry.h"
 
 #include <glm/glm.hpp>
 
+#include <map>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -39,8 +42,10 @@ public:
 	Painter2D();
 	~Painter2D();
 
-	// Throws on a shader error, like Shader does.
+	// Throws on a shader error, like Shader does. create() makes its own device on the
+	// current GL context; create(device) draws through the app's.
 	void create();
+	void create(gpu::Device& device);
 	void Delete();
 
 	// w, h = size in pixels of what is bound (the drawable size, not the window's
@@ -89,9 +94,10 @@ public:
 	void popDither();
 
 	// --- an app's own fragment shader over the same quads --------------------
-	// Compiles ui2d.vert with fragPath. That shader can `#include <ui2d.glsl>` for what
-	// each quad carries and the coverage, uv and dither helpers (see that file).
-	// Returns the program's id. Throws on a shader error, like Shader.
+	// GL only. Links fragPath (GLSL 330) to Painter2D's vertex stage. That shader can
+	// `#include <ui2d.glsl>` for what each quad carries and the coverage, uv and
+	// dither helpers (see that file). Returns the program's id. Throws on a shader
+	// error, like Shader.
 	int addProgram(const std::string& fragPath);
 	// Its GL program, for its own uniforms. They're read when the batch draws, so set
 	// them before the program's first quad in a frame, or flush() first.
@@ -116,13 +122,15 @@ private:
 	struct Sampler { int location; unsigned texture; };
 	struct Program
 	{
-		std::unique_ptr<Shader> shader;
-		int screenLoc = -1;
+		std::unique_ptr<Shader> shader; // an app's (GL); none for the stock one
+		gpu::Pipeline pipeline;
 		int ditherLoc = -1;
 		std::vector<Sampler> samplers;  // on units 1, 2, ...
 	};
 
-	static Program makeProgram(const std::string& fragPath);
+	gpu::PipelineDesc pipelineDesc() const;
+	// the gpu handle for a GL texture id, made once
+	gpu::Texture wrapped(unsigned texture);
 	// through the transform
 	void quad(float cx, float cy, float hx, float hy, float ux, float uy, float radius, float border, const glm::vec4& color,
 	          float mode = 0.0f, const glm::vec4& uv = glm::vec4(0.0f));
@@ -133,9 +141,13 @@ private:
 	void useTexture(unsigned texture);
 	void applyClip();
 
-	std::vector<Program> programs_;  // [0] is ui2d.frag
-	unsigned vao_ = 0;
-	unsigned vbo_ = 0;
+	gpu::Device* dev_ = nullptr;
+	std::unique_ptr<gpu::Device> ownDevice_;  // create() without one
+	gpu::Shader vs_, fs_;
+	std::vector<Program> programs_;  // [0] is gpu/ui2d.frag
+	gpu::Buffer vb_;
+	uint32_t vbOffset_ = 0;          // where the next batch goes: the buffer is a ring
+	std::map<unsigned, gpu::Texture> wrapped_;
 	std::vector<float> verts_;
 	std::vector<Text::Glyph> glyphs_;
 	unsigned tex_ = 0;

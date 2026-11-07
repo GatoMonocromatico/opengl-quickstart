@@ -2,6 +2,9 @@
 #include "render/Text.h"
 #include "render/ShapedText.h"
 #include "render/shaderClass.h"
+#include "gpu/GL.h"
+
+#include <glad/glad.h>
 
 #include <algorithm>
 #include <cmath>
@@ -16,47 +19,81 @@ Painter2D::~Painter2D() = default;
 static constexpr int kFloats = 25;
 static constexpr int kSizes[8] = { 2, 4, 2, 4, 4, 1, 4, 4 };
 
-Painter2D::Program Painter2D::makeProgram(const std::string& fragPath)
+// the vertex stage's uniform block and the stock fragment shader's
+struct Ui2dView { float screen[2]; float pad[2]; };
+struct Ui2dFrag { float dither[2]; float pad[2]; };
+
+constexpr uint32_t kFirstRing = 256 * 1024;
+
+gpu::PipelineDesc Painter2D::pipelineDesc() const
 {
-	Program p;
-	p.shader = std::make_unique<Shader>(QS_SHADER_DIR "ui2d.vert", fragPath.c_str());
-	p.screenLoc = glGetUniformLocation(p.shader->ID, "uScreen");
-	p.ditherLoc = glGetUniformLocation(p.shader->ID, "uDither");
-	p.shader->Activate();
-	glUniform1i(glGetUniformLocation(p.shader->ID, "uTex"), 0);
-	return p;
+	gpu::PipelineDesc d{ .vertex = vs_, .fragment = fs_, .buffers = { { kFloats * sizeof(float) } } };
+	uint32_t offset = 0;
+	const gpu::VertexFormat formats[5] = { gpu::VertexFormat::Float, gpu::VertexFormat::Float, gpu::VertexFormat::Float2,
+	                                       gpu::VertexFormat::Float3, gpu::VertexFormat::Float4 };
+	for (uint32_t i = 0; i < 8; i++)
+	{
+		d.attributes.push_back({ i, 0, formats[kSizes[i]], offset });
+		offset += kSizes[i] * sizeof(float);
+	}
+	// colour blends over; alpha adds up as coverage, so a transparent target ends up right too
+	d.blend = gpu::Blend::Alpha;
+	return d;
 }
 
 void Painter2D::create()
 {
 	Delete();
-	programs_.push_back(makeProgram(QS_SHADER_DIR "ui2d.frag"));
+	ownDevice_ = gpu::gl::createDevice();
+	create(*ownDevice_);
+}
 
-	glGenVertexArrays(1, &vao_);
-	glGenBuffers(1, &vbo_);
-	glBindVertexArray(vao_);
-	glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-	const GLsizei stride = kFloats * sizeof(float);
-	size_t offset = 0;
-	for (int i = 0; i < 8; i++)
+void Painter2D::create(gpu::Device& device)
+{
+	if (&device != ownDevice_.get())
 	{
-		glVertexAttribPointer(i, kSizes[i], GL_FLOAT, GL_FALSE, stride, reinterpret_cast<void*>(offset * sizeof(float)));
-		glEnableVertexAttribArray(i);
-		offset += kSizes[i];
+		Delete();
 	}
-	glBindVertexArray(0);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	dev_ = &device;
+	vs_ = dev_->shader(QS_GPU_SHADER_DIR "ui2d.vert", gpu::Stage::Vertex);
+	fs_ = dev_->shader(QS_GPU_SHADER_DIR "ui2d.frag", gpu::Stage::Fragment);
+	Program stock;
+	stock.pipeline = dev_->pipeline(pipelineDesc());
+	programs_.push_back(std::move(stock));
+	vb_ = dev_->buffer(gpu::BufferUsage::Vertex, kFirstRing);
+	vbOffset_ = 0;
 }
 
 void Painter2D::Delete()
 {
-	for (Program& p : programs_)
-		if (p.shader) p.shader->Delete();
+	if (dev_)
+	{
+		for (Program& p : programs_)
+		{
+			dev_->release(p.pipeline);
+			if (p.shader) p.shader->Delete();
+		}
+		for (auto& [name, t] : wrapped_) dev_->release(t);
+		dev_->release(vb_);
+		dev_->release(vs_);
+		dev_->release(fs_);
+	}
 	programs_.clear();
-	if (vbo_) glDeleteBuffers(1, &vbo_);
-	if (vao_) glDeleteVertexArrays(1, &vao_);
-	vbo_ = vao_ = 0;
+	wrapped_.clear();
+	vb_ = {};
+	vs_ = fs_ = {};
+	dev_ = nullptr;
+	ownDevice_.reset();
 	verts_.clear();
+}
+
+gpu::Texture Painter2D::wrapped(unsigned texture)
+{
+	auto it = wrapped_.find(texture);
+	if (it != wrapped_.end()) return it->second;
+	const gpu::Texture t = gpu::gl::wrap(*dev_, texture);
+	wrapped_[texture] = t;
+	return t;
 }
 
 void Painter2D::begin(int w, int h)
@@ -90,28 +127,45 @@ void Painter2D::flush()
 {
 	if (verts_.empty() || programs_.empty()) { verts_.clear(); return; }
 	const Program& p = programs_[programStack_.empty() ? 0 : programStack_.back()];
-	glDisable(GL_DEPTH_TEST);
-	glEnable(GL_BLEND);
-	// colour blends over; alpha adds up as coverage, so a transparent target ends up right too
-	glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-	p.shader->Activate();
-	glUniform2f(p.screenLoc, static_cast<float>(w_), static_cast<float>(h_));
-	const glm::vec2 d = dither_.empty() ? glm::vec2(1.0f) : dither_.back();
-	glUniform2f(p.ditherLoc, d.x, d.y);
-	for (size_t i = 0; i < p.samplers.size(); i++)
+	const uint32_t bytes = static_cast<uint32_t>(verts_.size() * sizeof(float));
+	// the batches of a frame go one after another; when the ring is full it starts
+	// over (long-drawn batches by then), and a batch bigger than all of it grows it
+	if (vbOffset_ + bytes > dev_->size(vb_))
 	{
-		glActiveTexture(GL_TEXTURE1 + static_cast<GLenum>(i));
-		glBindTexture(GL_TEXTURE_2D, p.samplers[i].texture);
+		vbOffset_ = 0;
+		if (bytes > dev_->size(vb_))
+		{
+			uint32_t size = dev_->size(vb_);
+			while (size < bytes) size *= 2;
+			dev_->release(vb_);
+			vb_ = dev_->buffer(gpu::BufferUsage::Vertex, size);
+		}
 	}
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, tex_);
-	glBindVertexArray(vao_);
-	glBindBuffer(GL_ARRAY_BUFFER, vbo_);
-	glBufferData(GL_ARRAY_BUFFER, verts_.size() * sizeof(float), verts_.data(), GL_STREAM_DRAW);
-	glDrawArrays(GL_TRIANGLES, 0, static_cast<GLsizei>(verts_.size() / kFloats));
-	glBindVertexArray(0);
-	glBindBuffer(GL_ARRAY_BUFFER, 0);
-	glBindTexture(GL_TEXTURE_2D, 0);
+	dev_->upload(vb_, verts_.data(), bytes, vbOffset_);
+
+	gpu::Pass pass = gpu::gl::beginPassOnBound(*dev_, w_, h_);
+	pass.bind(p.pipeline);
+	pass.vertices(0, vb_, vbOffset_);
+	pass.uniforms(gpu::Stage::Vertex, 0, Ui2dView{ { static_cast<float>(w_), static_cast<float>(h_) }, {} });
+	const glm::vec2 d = dither_.empty() ? glm::vec2(1.0f) : dither_.back();
+	if (p.shader) glUniform2f(p.ditherLoc, d.x, d.y); // an app's GLSL 330 program: a plain uniform
+	else pass.uniforms(gpu::Stage::Fragment, 0, Ui2dFrag{ { d.x, d.y }, {} });
+	// no Sampler: each texture samples with its own state, as it always did
+	if (tex_) pass.texture(gpu::Stage::Fragment, 0, wrapped(tex_), {});
+	for (size_t i = 0; i < p.samplers.size(); i++)
+		pass.texture(gpu::Stage::Fragment, static_cast<uint32_t>(i + 1), wrapped(p.samplers[i].texture), {});
+	if (!clips_.empty())
+	{
+		const ClipRect& c = clips_.back();
+		pass.scissor(c.x, c.y, c.w, c.h);
+	}
+	pass.draw(static_cast<uint32_t>(verts_.size() / kFloats));
+	pass.end();
+	// between batches GL stays as begin() set it, for raw GL drawn in between
+	glDisable(GL_DEPTH_TEST);
+	applyClip();
+
+	vbOffset_ += bytes;
 	verts_.clear();
 	tex_ = 0;
 }
@@ -318,22 +372,35 @@ void Painter2D::popDither()
 int Painter2D::addProgram(const std::string& fragPath)
 {
 	flush();
-	programs_.push_back(makeProgram(fragPath));
+	Program p;
+	// GLSL 330: the GL translation of the stock vertex stage, and the app's fragment shader
+	p.shader = std::make_unique<Shader>(QS_GPU_SHADER_DIR "ui2d.vert.gl", fragPath.c_str());
+	p.pipeline = gpu::gl::import(*dev_, p.shader->ID, pipelineDesc());
+	p.ditherLoc = glGetUniformLocation(p.shader->ID, "uDither");
+	p.shader->Activate();
+	glUniform1i(glGetUniformLocation(p.shader->ID, "uTex"), 0);
+	glUseProgram(0);
+	programs_.push_back(std::move(p));
 	return static_cast<int>(programs_.size()) - 1;
 }
 
-unsigned Painter2D::glProgram(int program) const { return programs_[program].shader->ID; }
+unsigned Painter2D::glProgram(int program) const
+{
+	const Program& p = programs_[program];
+	return p.shader ? p.shader->ID : gpu::gl::program(*dev_, p.pipeline);
+}
 
 void Painter2D::bindTexture(int program, const char* sampler, unsigned texture)
 {
 	flush();
 	Program& p = programs_[program];
-	const int location = glGetUniformLocation(p.shader->ID, sampler);
+	const int location = glGetUniformLocation(glProgram(program), sampler);
 	for (Sampler& s : p.samplers)
 		if (s.location == location) { s.texture = texture; return; }
 	p.samplers.push_back({ location, texture });
-	p.shader->Activate();
+	glUseProgram(glProgram(program));
 	glUniform1i(location, static_cast<int>(p.samplers.size()));
+	glUseProgram(0);
 }
 
 void Painter2D::pushProgram(int program)

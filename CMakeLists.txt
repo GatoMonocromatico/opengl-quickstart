@@ -105,6 +105,11 @@ target_compile_definitions(opengl_quickstart
         QS_FONT_DIR="${QS_ROOT}/fonts/"
 )
 
+# Painter2D's shaders, GLSL 450 built for every gpu:: backend (needs glslang + spirv-cross)
+qs_gpu_shaders(opengl_quickstart "${CMAKE_CURRENT_BINARY_DIR}/gpu-shaders"
+    "${QS_ROOT}/shaders/gpu/ui2d.vert" "${QS_ROOT}/shaders/gpu/ui2d.frag")
+target_compile_definitions(opengl_quickstart PRIVATE QS_GPU_SHADER_DIR="${CMAKE_CURRENT_BINARY_DIR}/gpu-shaders/")
+
 # Call on every executable that links opengl_quickstart, so it finds the SDL
 # shared libraries at runtime (DLL copy on Windows, rpath on Linux).
 function(quickstart_setup_executable target)

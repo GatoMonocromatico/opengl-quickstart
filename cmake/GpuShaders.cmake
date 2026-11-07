@@ -9,7 +9,8 @@
 #   <name>.refl  its uniform blocks and samplers with their slots
 # and makes <target> depend on them. Load one with
 # device.shader("<dir>/<name>", stage). Shaders can #include files next to them
-# or in the toolkit's shaders/gpu (with GL_GOOGLE_include_directive).
+# or in the toolkit's shaders/ (with GL_GOOGLE_include_directive and
+# quotes: `#include "ui2d_common.glsl"`).
 #
 # Needs glslangValidator and spirv-cross on the PATH at build time only
 # (Ubuntu: apt install glslang-tools spirv-cross; Windows: the Vulkan SDK).
@@ -17,7 +18,7 @@
 find_program(QS_GLSLANG glslangValidator)
 find_program(QS_SPIRV_CROSS spirv-cross)
 set(QS_GPU_SHADER_POST "${CMAKE_CURRENT_LIST_DIR}/GpuShaderPost.cmake")
-set(QS_GPU_SHADER_INCLUDE "${CMAKE_CURRENT_LIST_DIR}/../shaders/gpu")
+set(QS_GPU_SHADER_INCLUDE "${CMAKE_CURRENT_LIST_DIR}/../shaders")
 
 function(qs_gpu_shaders target dir)
     if(NOT QS_GLSLANG OR NOT QS_SPIRV_CROSS)
@@ -33,7 +34,7 @@ function(qs_gpu_shaders target dir)
         add_custom_command(
             OUTPUT "${out}.spv" "${out}.gl" "${out}.refl"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${dir}"
-            COMMAND "${QS_GLSLANG}" -V --quiet -I"${srcdir}" -I"${QS_GPU_SHADER_INCLUDE}"
+            COMMAND "${QS_GLSLANG}" -V --quiet "-I${srcdir}" "-I${QS_GPU_SHADER_INCLUDE}"
                     --depfile "${out}.d" -o "${out}.spv" "${abs}"
             COMMAND "${QS_SPIRV_CROSS}" "${out}.spv" --version 330 --no-420pack-extension
                     --fixup-clipspace --output "${out}.gl.raw"

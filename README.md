@@ -174,6 +174,7 @@ pass.end();
 - **Conventions** (SDL_GPU's, on every backend): NDC +y up, depth 0..1; texture row 0 is the top whether it was uploaded or rendered; viewports and scissors are pixels from the target's top-left. The GL backend keeps them by flipping what it draws into a texture (and the winding with it) and remapping depth in the generated shaders.
 - **Shaders** are GLSL 450 in SDL_GPU's layout: vertex samplers `set = 0`, vertex blocks `set = 1`, fragment samplers `set = 2`, fragment blocks `set = 3`; the binding is the slot. `qs_gpu_shaders(<target> <out dir> <files...>)` (`cmake/GpuShaders.cmake`) compiles them at build time to SPIR-V (`.spv`) and to GLSL 330 with a binding table for GL (`.gl`, `.refl`), and checks the sets. Load them with the output path minus the suffix. On GL a varying keeps its name in both stages and a block or sampler name belongs to one stage.
 - **Natives**: `gpu/GL.h` gives the GL names behind handles (`gpu::gl::native(dev, texture)`, `program(dev, pipeline)`), so raw GL can go between passes. A pass sets the state it needs when it binds a pipeline, and `end()` puts GL back the way `initialize()` left it. The old `VAO`/`VBO`/`EBO`/`Shader`/`Texture` classes stay as the GL layer.
+- **Painter2D** draws through it: `create()` makes its own device on the current GL context, `create(device)` shares the app's. On GL it draws into whatever framebuffer is bound (`gpu::gl::beginPassOnBound`), and `image(GLuint)`, `addProgram` / `glProgram` / `bindTexture` stay GL calls (`gpu::gl::wrap`, `gpu::gl::import`), so apps that mix raw GL keep working.
 - Tests: `gpu_tests` (orientation, scissor, viewport, texture round trips, depth range, culling through the flip, blend, instancing, indices, natives, the state a pass leaves). It needs a display and is skipped (exit 77) without one.
 
 ## UI widgets
@@ -182,7 +183,7 @@ pass.end();
 
 | Header | GL | What |
 |---|---|---|
-| `ui/Painter2D.h` | yes | batched rects, rounded rects, outlines, lines, circles, images and text in window pixels (top-left origin), in call order; stacks for clip, transform, alpha, dither and an app's own fragment shader; shaders `shaders/ui2d.*` |
+| `ui/Painter2D.h` | yes | batched rects, rounded rects, outlines, lines, circles, images and text in window pixels (top-left origin), in call order; stacks for clip, transform, alpha, dither and an app's own fragment shader; draws through `gpu::` with `shaders/gpu/ui2d.*` |
 | `ui/TextEdit.h` | no | UTF-8 string + caret + selection: insert, backspace/delete (Ctrl = word), arrows, home/end, up/down over wrapped lines, select all/word, cut/paste text in and out |
 | `ui/Wrap.h` | no | `wrap(text, maxWidth, measure)` -> line ranges (word wrap, long words broken, `\n` kept); `lineOfOffset`, `indexInLine(s)` |
 | `ui/Context.h` | yes | immediate-mode widgets, input, `Theme`, a pannable zoomable canvas, the redraw rule |
@@ -313,7 +314,7 @@ Text goes into the same batch as the shapes (sampling the font's atlas), `Text` 
 An app's own fragment shader draws Painter2D's quads with whatever look it wants:
 
 ```cpp
-int foil = p.addProgram("shaders/foil.frag");       // compiled with ui2d.vert
+int foil = p.addProgram("shaders/foil.frag");       // GL only: linked to the stock vertex stage
 p.bindTexture(foil, "uLut", lutTexture);            // bound on units 1, 2, ... whenever it draws
 glUseProgram(p.glProgram(foil)); glUniform2f(...);  // its uniforms: before its first quad in a frame
 p.pushProgram(foil);
@@ -322,7 +323,7 @@ p.roundedRect(x, y, w, h, 2, glm::vec4(1));         // any shape, image or text
 p.popProgram();
 ```
 
-The shader starts with `#version 330 core` and `#include <ui2d.glsl>` (angle brackets: the stock shader folder), which declares what each quad carries: `vColor`, `vLocal` (pixels from its centre, along its own axes), `vShape` (half size, radius, border), `vUvRect`, `vMode` (0 shape, 1 image, 2 glyph from `Text`, 3 glyph and 4 colour glyph from `ShapedText`), `vParam0`, `vParam1`, `vPixel` (the pixel in the target, top-left origin); and the helpers `ui2dCoverage()` (the shape's antialiased edge, or a glyph's ink), `ui2dColor()` (what Painter2D's own shader draws), `ui2dUv()` and `ui2dBayer(pixel, cell)` (the 4x4 ordered-dither threshold). See `example/shaders/sheen.frag`.
+The shader starts with `#version 330 core` and `#include <ui2d.glsl>` (angle brackets: the stock shader folder; the helpers live in `ui2d_common.glsl`, which Painter2D's own GLSL 450 shader includes too), which declares what each quad carries: `vColor`, `vLocal` (pixels from its centre, along its own axes), `vShape` (half size, radius, border), `vUvRect`, `vMode` (0 shape, 1 image, 2 glyph from `Text`, 3 glyph and 4 colour glyph from `ShapedText`), `vParam0`, `vParam1`, `vPixel` (the pixel in the target, top-left origin); and the helpers `ui2dCoverage()` (the shape's antialiased edge, or a glyph's ink), `ui2dColor()` (what Painter2D's own shader draws), `ui2dUv()` and `ui2dBayer(pixel, cell)` (the 4x4 ordered-dither threshold). See `example/shaders/sheen.frag`.
 
 The motion demo, `./build/opengl_quickstart_motion`, shows all of it: a board of cards on a canvas, a reveal drawn with its own shader and grown by a tween, a marker on a spring, two rolling counters in digit slots (clip + a second font), a modal's dithered checker over a disabled canvas, a fading line (alpha), and a band of the frame blitted back shifted (`ScreenCapture` + `image` with a source rect). It counts the frames it draws, so you can see them stop when nothing moves. `QS_SHOT=<png>` saves a frame `QS_SHOT_MS` (300) in, with a card picked and the counters rolling; `QS_DIM=1` puts the board behind the modal; `QS_SLIP=1` catches the band blit.
 
@@ -376,8 +377,9 @@ opengl-quickstart/
 ├── shaders/              # stock shaders, found at runtime through QS_SHADER_DIR
 │   ├── default.vert/.frag  # main mesh pipeline (instancing, lighting, mask alpha)
 │   ├── point.vert/.frag    # GL_POINTS pipeline
-│   ├── ui2d.vert/.frag     # Painter2D's quads
-│   └── ui2d.glsl           # what ui2d.vert hands a fragment shader, and helpers (#include <ui2d.glsl>)
+│   ├── gpu/ui2d.vert/.frag # Painter2D's quads, GLSL 450 for gpu:: (built by qs_gpu_shaders)
+│   ├── ui2d_common.glsl    # Painter2D's fragment helpers, for both of these
+│   └── ui2d.glsl           # what Painter2D's vertex stage hands an app's GLSL 330 shader (#include <ui2d.glsl>)
 │
 ├── fonts/                # bundled .ttf fonts for Text, found through QS_FONT_DIR (licenses in fonts/README.md)
 │
