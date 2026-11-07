@@ -29,8 +29,10 @@ struct Loop::Watcher
 	struct Watch
 	{
 		int id, fd;
-		std::function<void()> fn;
+		short events;
+		std::function<void(short)> fn;
 		bool armed = true;
+		short revents = 0; // what poll() saw, handed to fn
 	};
 
 	std::mutex m;
@@ -79,9 +81,9 @@ struct Loop::Watcher
 				std::lock_guard lock(m);
 				if (stop) return;
 				for (const Watch& w : list)
-					if (w.armed)
+					if (w.armed && w.events)
 					{
-						fds.push_back({ w.fd, POLLIN, 0 });
+						fds.push_back({ w.fd, w.events, 0 });
 						ids.push_back(w.id);
 					}
 			}
@@ -101,7 +103,11 @@ struct Loop::Watcher
 				{
 					std::lock_guard lock(m);
 					for (Watch& w : list)
-						if (w.id == ids[i]) w.armed = false;
+						if (w.id == ids[i])
+						{
+							w.armed = false;
+							w.revents = fds[i].revents;
+						}
 				}
 				SDL_Event e{};
 				e.type = eventType;
@@ -113,14 +119,19 @@ struct Loop::Watcher
 	// on the loop's thread, for an event this watcher pushed
 	void fire(int id)
 	{
-		std::function<void()> fn;
+		std::function<void(short)> fn;
+		short revents = 0;
 		{
 			std::lock_guard lock(m);
 			for (const Watch& w : list)
-				if (w.id == id) fn = w.fn;
+				if (w.id == id)
+				{
+					fn = w.fn;
+					revents = w.revents;
+				}
 		}
 		if (!fn) return; // cancelled while the event was queued
-		fn();
+		fn(revents);
 		{
 			std::lock_guard lock(m);
 			for (Watch& w : list)
@@ -138,6 +149,15 @@ struct Loop::Watcher
 		}
 		if (found) wake();
 		return found;
+	}
+	void setEvents(int id, short events)
+	{
+		{
+			std::lock_guard lock(m);
+			for (Watch& w : list)
+				if (w.id == id) w.events = events;
+		}
+		wake();
 	}
 };
 #else
@@ -164,14 +184,24 @@ int Loop::every(double seconds, std::function<void()> fn)
 #ifndef _WIN32
 int Loop::watch(int fd, std::function<void()> fn)
 {
+	return watch(fd, POLLIN, [fn = std::move(fn)](short) { fn(); });
+}
+
+int Loop::watch(int fd, short events, std::function<void(short revents)> fn)
+{
 	if (!watcher_) watcher_ = std::make_unique<Watcher>();
 	const int id = nextId_++;
 	{
 		std::lock_guard lock(watcher_->m);
-		watcher_->list.push_back({ id, fd, std::move(fn) });
+		watcher_->list.push_back({ id, fd, events, std::move(fn) });
 	}
 	watcher_->wake();
 	return id;
+}
+
+void Loop::setEvents(int id, short events)
+{
+	if (watcher_) watcher_->setEvents(id, events);
 }
 #endif
 

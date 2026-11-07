@@ -29,7 +29,8 @@
 //
 // Watched fds are polled by one helper thread that wakes the loop with an SDL event; it
 // stops polling an fd while its callback is pending, so a callback must read what is
-// there (or cancel the watch on EOF), or it is called again at once.
+// there (or cancel the watch on EOF), or it is called again at once; likewise a POLLOUT
+// watch must write or drop POLLOUT with setEvents.
 
 #include <SDL3/SDL.h>
 
@@ -62,6 +63,10 @@ public:
 #ifndef _WIN32
 	// fn runs on the loop's thread when fd is readable, hung up or in error
 	int watch(int fd, std::function<void()> fn);
+	// the same for any poll() events (POLLIN, POLLOUT, ...); fn gets the revents.
+	// setEvents changes what an existing watch waits for; 0 pauses it.
+	int watch(int fd, short events, std::function<void(short revents)> fn);
+	void setEvents(int id, short events);
 #endif
 	void cancel(int id); // a timer or a watch; unknown ids are ignored
 
