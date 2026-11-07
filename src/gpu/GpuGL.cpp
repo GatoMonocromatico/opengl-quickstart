@@ -142,7 +142,7 @@ template <class T> struct Pool
 };
 
 struct GLBuffer { bool live = false; GLuint name = 0; uint32_t size = 0; };
-struct GLTexture { bool live = false; GLuint name = 0; TextureDesc desc; };
+struct GLTexture { bool live = false; GLuint name = 0; TextureDesc desc; bool owned = true; };
 struct GLSampler { bool live = false; GLuint name = 0; };
 struct Binding { std::string name; int slot; };
 struct GLShader
@@ -157,6 +157,7 @@ struct GLPipeline
 	bool live = false;
 	GLuint program = 0, vao = 0;
 	GLint flipLoc = -1;
+	bool ownsProgram = true;
 	PipelineDesc desc;
 };
 
@@ -171,11 +172,11 @@ public:
 		for (GLuint ubo : ubos_)
 			if (ubo) glDeleteBuffers(1, &ubo);
 		for (auto& b : buffers_.items) if (b.live) glDeleteBuffers(1, &b.name);
-		for (auto& t : textures_.items) if (t.live) glDeleteTextures(1, &t.name);
+		for (auto& t : textures_.items) if (t.live && t.owned) glDeleteTextures(1, &t.name);
 		for (auto& s : samplers_.items) if (s.live) glDeleteSamplers(1, &s.name);
 		for (auto& s : shaders_.items) if (s.live) glDeleteShader(s.name);
 		for (auto& p : pipelines_.items)
-			if (p.live) { glDeleteProgram(p.program); glDeleteVertexArrays(1, &p.vao); }
+			if (p.live) { if (p.ownsProgram) glDeleteProgram(p.program); glDeleteVertexArrays(1, &p.vao); }
 	}
 
 	Backend backend() const override { return Backend::GL; }
@@ -240,7 +241,7 @@ public:
 	std::vector<uint8_t> download(Texture texture) override
 	{
 		const GLTexture* t = textures_.get(texture.id);
-		if (!t) return {};
+		if (!t || t->desc.format == Format::None) return {}; // a wrapped one
 		const FormatInfo f = formatInfo(t->desc.format);
 		std::vector<uint8_t> out(static_cast<size_t>(t->desc.width) * t->desc.height * f.bytes);
 		glBindTexture(GL_TEXTURE_2D, t->name);
@@ -319,8 +320,52 @@ public:
 			glDeleteProgram(p.program);
 			throw std::runtime_error(std::string("gpu: pipeline doesn't link: ") + log);
 		}
+		return { pipelines_.add(finish(std::move(p), { vs, fs })) };
+	}
+
+	// an app's program as a pipeline
+	Pipeline importProgram(GLuint program, const PipelineDesc& desc)
+	{
+		GLPipeline p;
+		p.desc = desc;
+		p.program = program;
+		p.ownsProgram = false;
+		std::vector<const GLShader*> stages;
+		for (Shader sh : { desc.vertex, desc.fragment })
+			if (const GLShader* s = shaders_.get(sh.id)) stages.push_back(s);
+		return { pipelines_.add(finish(std::move(p), stages)) };
+	}
+
+	Texture wrapTexture(GLuint name)
+	{
+		GLTexture t;
+		t.name = name;
+		t.owned = false;
+		t.desc = { 0, 0, Format::None, TextureUsage::Sampled };
+		return { textures_.add(t) };
+	}
+
+	Pass beginBound(int w, int h)
+	{
+		glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &savedFbo_);
+		glGetIntegerv(GL_VIEWPORT, savedViewport_);
+		targetW_ = w;
+		targetH_ = h;
+		flip_ = false;
+		current_ = nullptr;
+		glDisable(GL_SCISSOR_TEST);
+		return openPass(w, h);
+	}
+
+private:
+	// binds the stages' blocks and samplers to their slots and makes the VAO
+	GLPipeline finish(GLPipeline p, const std::vector<const GLShader*>& stages)
+	{
+		const PipelineDesc& desc = p.desc;
+		GLint prev = 0;
+		glGetIntegerv(GL_CURRENT_PROGRAM, &prev);
 		glUseProgram(p.program);
-		for (const GLShader* s : { vs, fs })
+		for (const GLShader* s : stages)
 		{
 			const int st = stageIndex(s->stage);
 			for (const Binding& b : s->blocks)
@@ -335,7 +380,7 @@ public:
 			}
 		}
 		p.flipLoc = glGetUniformLocation(p.program, "gpu_flipY");
-		glUseProgram(0);
+		glUseProgram(static_cast<GLuint>(prev));
 
 		glGenVertexArrays(1, &p.vao);
 		glBindVertexArray(p.vao);
@@ -346,9 +391,10 @@ public:
 			glVertexAttribDivisor(a.location, inst ? 1 : 0);
 		}
 		glBindVertexArray(0);
-		return { pipelines_.add(std::move(p)) };
+		return p;
 	}
 
+public:
 	// --- release -------------------------------------------------------------------
 	void release(Buffer b) override
 	{
@@ -368,7 +414,7 @@ public:
 				}
 				else ++it;
 			}
-			glDeleteTextures(1, &x->name);
+			if (x->owned) glDeleteTextures(1, &x->name);
 		}
 		textures_.remove(t.id);
 	}
@@ -386,13 +432,16 @@ public:
 	{
 		if (GLPipeline* x = pipelines_.get(p.id))
 		{
-			glDeleteProgram(x->program);
+			if (x->ownsProgram) glDeleteProgram(x->program);
 			glDeleteVertexArrays(1, &x->vao);
 		}
 		pipelines_.remove(p.id);
 	}
 
-	void present() override { SDL_GL_SwapWindow(window_); }
+	void present() override
+	{
+		if (window_) SDL_GL_SwapWindow(window_);
+	}
 
 	// --- natives -------------------------------------------------------------------
 	GLuint nativeBuffer(uint32_t id) const { auto* x = buffers_.get(id); return x ? x->name : 0; }
@@ -415,7 +464,8 @@ protected:
 		}
 		else
 		{
-			SDL_GetWindowSizeInPixels(window_, &w, &h);
+			w = h = 0;
+			if (window_) SDL_GetWindowSizeInPixels(window_, &w, &h);
 			targetW_ = w;
 			targetH_ = h;
 			flip_ = false;
@@ -644,6 +694,7 @@ private:
 };
 
 const GLDevice* asGL(const Device& d) { return dynamic_cast<const GLDevice*>(&d); }
+GLDevice* asGL(Device& d) { return dynamic_cast<GLDevice*>(&d); }
 
 }
 
@@ -658,6 +709,28 @@ unsigned native(const Device& d, Buffer b) { auto* g = asGL(d); return g ? g->na
 unsigned native(const Device& d, Texture t) { auto* g = asGL(d); return g ? g->nativeTexture(t.id) : 0; }
 unsigned native(const Device& d, Sampler s) { auto* g = asGL(d); return g ? g->nativeSampler(s.id) : 0; }
 unsigned program(const Device& d, Pipeline p) { auto* g = asGL(d); return g ? g->nativeProgram(p.id) : 0; }
+
+std::unique_ptr<Device> createDevice() { return std::make_unique<GLDevice>(nullptr); }
+
+Texture wrap(Device& d, unsigned glTexture)
+{
+	GLDevice* g = asGL(d);
+	return g && glTexture ? g->wrapTexture(glTexture) : Texture{};
+}
+
+Pipeline import(Device& d, unsigned glProgram, const PipelineDesc& desc)
+{
+	GLDevice* g = asGL(d);
+	if (!g) throw std::runtime_error("gpu::gl::import on a device that isn't GL");
+	return g->importProgram(glProgram, desc);
+}
+
+Pass beginPassOnBound(Device& d, int w, int h)
+{
+	GLDevice* g = asGL(d);
+	if (!g) throw std::runtime_error("gpu::gl::beginPassOnBound on a device that isn't GL");
+	return g->beginBound(w, h);
+}
 }
 
 }

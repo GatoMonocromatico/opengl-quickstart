@@ -232,6 +232,15 @@ public:
 
 protected:
 	friend class Pass;
+	// a Pass on this device; for backends' own ways to begin one
+	Pass openPass(int w, int h)
+	{
+		Pass p;
+		p.dev_ = this;
+		p.w_ = w;
+		p.h_ = h;
+		return p;
+	}
 	// begins the pass; returns the target's size
 	virtual void passBegin(const PassDesc& desc, int& w, int& h) = 0;
 	virtual void passBind(Pipeline) = 0;
