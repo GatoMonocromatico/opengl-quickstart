@@ -242,8 +242,13 @@ void Painter2D::circleOutline(float cx, float cy, float radius, float thickness,
 
 void Painter2D::image(unsigned texture, float x, float y, float w, float h, const glm::vec4& tint, const glm::vec4& uv)
 {
+	if (texture) image(wrapped(texture), x, y, w, h, tint, uv);
+}
+
+void Painter2D::image(gpu::Texture texture, float x, float y, float w, float h, const glm::vec4& tint, const glm::vec4& uv)
+{
 	if (w <= 0 || h <= 0 || !texture) return;
-	useTexture(wrapped(texture));
+	useTexture(texture);
 	quad(x + w * 0.5f, y + h * 0.5f, w * 0.5f, h * 0.5f, 1, 0, 0, 0, tint, 1.0f, uv);
 }
 

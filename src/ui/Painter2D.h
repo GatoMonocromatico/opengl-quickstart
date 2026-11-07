@@ -68,6 +68,9 @@ public:
 	// turns it over (a Framebuffer or a ScreenCapture holds its bottom row first).
 	void image(unsigned texture, float x, float y, float w, float h, const glm::vec4& tint = glm::vec4(1.0f),
 	           const glm::vec4& uv = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
+	// The same for a gpu:: texture on the painter's device (Framebuffer::color, say).
+	void image(gpu::Texture texture, float x, float y, float w, float h, const glm::vec4& tint = glm::vec4(1.0f),
+	           const glm::vec4& uv = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
 
 	// y is the baseline; the start lands on a whole pixel. The color's alpha counts.
 	void text(Text& font, std::string_view s, float x, float y, const glm::vec4& color, float scale = 1.0f);
