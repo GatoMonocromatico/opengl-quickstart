@@ -1,4 +1,5 @@
 #include "core/Window.h"
+#include "gpu/GL.h"
 #include "util/DebugLog.h"
 
 #include <vector>
@@ -261,6 +262,7 @@ SDLState initialize(int width, int height, const WindowOptions& options)
 void cleanup(SDLState& state)
 {
 	if (state.context) {
+		gpu::gl::forgetContext(state.context);
 		SDL_GL_DestroyContext(state.context);
 		state.context = nullptr;
 	}

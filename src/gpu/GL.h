@@ -15,9 +15,14 @@
 namespace gpu::gl
 {
 
-// A device on the GL context current on this thread, with no window to present
-// (present() does nothing): for code that draws into what the app binds.
-std::unique_ptr<Device> createDevice();
+// The device of the GL context current on this thread, made on first use, with no
+// window to present (present() does nothing): what Painter2D::create() draws
+// through. It stays until cleanup() destroys the context (handles still held on
+// it then just stop working), so a ShapedText or Painter2D may outlive another
+// one that used it.
+Device& contextDevice();
+// cleanup() calls it before destroying ctx: retires ctx's contextDevice()
+void forgetContext(void* ctx);
 
 unsigned native(const Device& device, Buffer buffer);   // buffer object
 unsigned native(const Device& device, Texture texture); // GL_TEXTURE_2D (a depth texture too)

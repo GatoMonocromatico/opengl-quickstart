@@ -12,12 +12,14 @@
 //
 // Glyphs are rasterised on demand into one RGBA atlas, premultiplied: coverage
 // glyphs are white (tinted when drawn), colour glyphs keep their colours. Draw with
-// ui::Painter2D::text(ShapedText&, ...). Shaping and rasterising need no GL; only
-// texture() touches GL, uploading the atlas when it changed.
+// ui::Painter2D::text(ShapedText&, ...). Shaping and rasterising need no GPU; only
+// texture(device) touches it, uploading the atlas when it changed.
 //
 //   ShapedText t;
 //   t.create({{"/usr/share/fonts/.../Recursive.ttc"}, {".../NotoColorEmoji.ttf"}}, 18.0f);
 //   painter.text(t, "olá 🙂 日本", 20, 40, {1, 1, 1, 1});
+
+#include "gpu/Gpu.h"
 
 #include <memory>
 #include <string>
@@ -75,8 +77,9 @@ public:
 	int fontFor(char32_t cp) const;
 	int fontCount() const;
 
-	// GL texture name of the atlas; uploads pending glyphs first. Needs a context.
-	unsigned texture();
+	// The atlas on device, uploading pending glyphs first. A new texture when the
+	// atlas grew (the old one is released). Its GL name: gpu::gl::native(device, ...).
+	gpu::Texture texture(gpu::Device& device);
 	int atlasSize() const;
 
 private:

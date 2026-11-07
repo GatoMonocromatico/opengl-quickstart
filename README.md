@@ -145,7 +145,7 @@ float w = t.width("medir");                                     // no rasterisin
 - Fonts are file paths (+ face index in a `.ttc`). Finding them is the app's job (fontconfig's `fc-match -f '%{file}|%{index}'` on Linux).
 - Colour emoji fonts with PNG strikes (Noto Color Emoji, 109 px) are scaled to the asked size on the CPU.
 - Colour glyphs keep their colours and only fade with the text colour's alpha.
-- Shaping and rasterising need no GL; `texture()` uploads the atlas, `Painter2D::text` calls it for you. The atlas grows from 512 to 4096 px and is rebuilt if it ever fills.
+- Shaping and rasterising need no GPU; `texture(device)` uploads the atlas (a new `gpu::Texture` when it grew), `Painter2D::text` calls it for you. The atlas grows from 512 to 4096 px and is rebuilt if it ever fills.
 - `tests/text_tests.cpp` covers fallback, shaping, clusters, atlas growth and emoji size.
 
 ## Renderer interface (gpu::)
@@ -174,7 +174,7 @@ pass.end();
 - **Conventions** (SDL_GPU's, on every backend): NDC +y up, depth 0..1; texture row 0 is the top whether it was uploaded or rendered; viewports and scissors are pixels from the target's top-left. The GL backend keeps them by flipping what it draws into a texture (and the winding with it) and remapping depth in the generated shaders.
 - **Shaders** are GLSL 450 in SDL_GPU's layout: vertex samplers `set = 0`, vertex blocks `set = 1`, fragment samplers `set = 2`, fragment blocks `set = 3`; the binding is the slot. `qs_gpu_shaders(<target> <out dir> <files...>)` (`cmake/GpuShaders.cmake`) compiles them at build time to SPIR-V (`.spv`) and to GLSL 330 with a binding table for GL (`.gl`, `.refl`), and checks the sets. Load them with the output path minus the suffix. On GL a varying keeps its name in both stages and a block or sampler name belongs to one stage.
 - **Natives**: `gpu/GL.h` gives the GL names behind handles (`gpu::gl::native(dev, texture)`, `program(dev, pipeline)`), so raw GL can go between passes. A pass sets the state it needs when it binds a pipeline, and `end()` puts GL back the way `initialize()` left it. The old `VAO`/`VBO`/`EBO`/`Shader`/`Texture` classes stay as the GL layer.
-- **Painter2D** draws through it: `create()` makes its own device on the current GL context, `create(device)` shares the app's. On GL it draws into whatever framebuffer is bound (`gpu::gl::beginPassOnBound`), and `image(GLuint)`, `addProgram` / `glProgram` / `bindTexture` stay GL calls (`gpu::gl::wrap`, `gpu::gl::import`), so apps that mix raw GL keep working.
+- **Painter2D** draws through it: `create()` uses the current GL context's device (`gpu::gl::contextDevice()`, kept until `cleanup()`), `create(device)` the app's. `ShapedText::texture(device)` gives its atlas as a `gpu::Texture`. On GL it draws into whatever framebuffer is bound (`gpu::gl::beginPassOnBound`), and `image(GLuint)`, `addProgram` / `glProgram` / `bindTexture` stay GL calls (`gpu::gl::wrap`, `gpu::gl::import`), so apps that mix raw GL keep working.
 - Tests: `gpu_tests` (orientation, scissor, viewport, texture round trips, depth range, culling through the flip, blend, instancing, indices, natives, the state a pass leaves). It needs a display and is skipped (exit 77) without one.
 
 ## UI widgets
