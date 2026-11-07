@@ -42,8 +42,9 @@ public:
 	Painter2D();
 	~Painter2D();
 
-	// Throws on a shader error, like Shader does. create() makes its own device on the
-	// current GL context; create(device) draws through the app's.
+	// Throws on a shader error, like Shader does. create() draws through the current
+	// GL context's device (gpu::gl::contextDevice()); create(device) through the
+	// app's, which must outlive the painter.
 	void create();
 	void create(gpu::Device& device);
 	void Delete();
@@ -138,11 +139,10 @@ private:
 	void emit(float cx, float cy, float hx, float hy, float ux, float uy, float radius, float border, const glm::vec4& color,
 	          float pad, float mode, const glm::vec4& uv);
 	// unit 0 for what's pending; another texture flushes first
-	void useTexture(unsigned texture);
+	void useTexture(gpu::Texture texture);
 	void applyClip();
 
 	gpu::Device* dev_ = nullptr;
-	std::unique_ptr<gpu::Device> ownDevice_;  // create() without one
 	gpu::Shader vs_, fs_;
 	std::vector<Program> programs_;  // [0] is gpu/ui2d.frag
 	gpu::Buffer vb_;
@@ -150,7 +150,7 @@ private:
 	std::map<unsigned, gpu::Texture> wrapped_;
 	std::vector<float> verts_;
 	std::vector<Text::Glyph> glyphs_;
-	unsigned tex_ = 0;
+	gpu::Texture tex_;
 	std::vector<ClipRect> clips_;
 	std::vector<Transform2D> xforms_{ Transform2D{} };
 	std::vector<float> alpha_{ 1.0f };

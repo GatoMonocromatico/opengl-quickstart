@@ -181,6 +181,9 @@ public:
 
 	Backend backend() const override { return Backend::GL; }
 
+	// its context is gone: handles are only forgotten from now on
+	void retire() { dead_ = true; }
+
 	// --- buffers ---------------------------------------------------------------
 	Buffer buffer(uint32_t, uint32_t size) override
 	{
@@ -398,12 +401,12 @@ public:
 	// --- release -------------------------------------------------------------------
 	void release(Buffer b) override
 	{
-		if (GLBuffer* x = buffers_.get(b.id)) glDeleteBuffers(1, &x->name);
+		if (GLBuffer* x = buffers_.get(b.id); x && !dead_) glDeleteBuffers(1, &x->name);
 		buffers_.remove(b.id);
 	}
 	void release(Texture t) override
 	{
-		if (GLTexture* x = textures_.get(t.id))
+		if (GLTexture* x = textures_.get(t.id); x && !dead_)
 		{
 			for (auto it = fbos_.begin(); it != fbos_.end();)
 			{
@@ -420,17 +423,17 @@ public:
 	}
 	void release(Sampler s) override
 	{
-		if (GLSampler* x = samplers_.get(s.id)) glDeleteSamplers(1, &x->name);
+		if (GLSampler* x = samplers_.get(s.id); x && !dead_) glDeleteSamplers(1, &x->name);
 		samplers_.remove(s.id);
 	}
 	void release(Shader s) override
 	{
-		if (GLShader* x = shaders_.get(s.id)) glDeleteShader(x->name);
+		if (GLShader* x = shaders_.get(s.id); x && !dead_) glDeleteShader(x->name);
 		shaders_.remove(s.id);
 	}
 	void release(Pipeline p) override
 	{
-		if (GLPipeline* x = pipelines_.get(p.id))
+		if (GLPipeline* x = pipelines_.get(p.id); x && !dead_)
 		{
 			if (x->ownsProgram) glDeleteProgram(x->program);
 			glDeleteVertexArrays(1, &x->vao);
@@ -691,6 +694,7 @@ private:
 	IndexType indexType_ = IndexType::U32;
 	uint32_t indexOffset_ = 0;
 	uint32_t usedUnits_ = 0;
+	bool dead_ = false;
 };
 
 const GLDevice* asGL(const Device& d) { return dynamic_cast<const GLDevice*>(&d); }
@@ -710,7 +714,31 @@ unsigned native(const Device& d, Texture t) { auto* g = asGL(d); return g ? g->n
 unsigned native(const Device& d, Sampler s) { auto* g = asGL(d); return g ? g->nativeSampler(s.id) : 0; }
 unsigned program(const Device& d, Pipeline p) { auto* g = asGL(d); return g ? g->nativeProgram(p.id) : 0; }
 
-std::unique_ptr<Device> createDevice() { return std::make_unique<GLDevice>(nullptr); }
+// Context devices are never deleted: something may still hold a handle on one
+// after its context is gone, and releasing that must stay harmless. A retired one
+// forgets its handles without GL calls.
+static std::map<void*, GLDevice*>& contextDevices()
+{
+	static std::map<void*, GLDevice*> devices;
+	return devices;
+}
+
+Device& contextDevice()
+{
+	GLDevice*& d = contextDevices()[SDL_GL_GetCurrentContext()];
+	if (!d) d = new GLDevice(nullptr);
+	return *d;
+}
+
+void forgetContext(void* ctx)
+{
+	auto& devices = contextDevices();
+	if (auto it = devices.find(ctx); it != devices.end())
+	{
+		it->second->retire();
+		devices.erase(it);
+	}
+}
 
 Texture wrap(Device& d, unsigned glTexture)
 {

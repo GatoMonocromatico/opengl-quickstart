@@ -41,19 +41,11 @@ gpu::PipelineDesc Painter2D::pipelineDesc() const
 	return d;
 }
 
-void Painter2D::create()
-{
-	Delete();
-	ownDevice_ = gpu::gl::createDevice();
-	create(*ownDevice_);
-}
+void Painter2D::create() { create(gpu::gl::contextDevice()); }
 
 void Painter2D::create(gpu::Device& device)
 {
-	if (&device != ownDevice_.get())
-	{
-		Delete();
-	}
+	Delete();
 	dev_ = &device;
 	vs_ = dev_->shader(QS_GPU_SHADER_DIR "ui2d.vert", gpu::Stage::Vertex);
 	fs_ = dev_->shader(QS_GPU_SHADER_DIR "ui2d.frag", gpu::Stage::Fragment);
@@ -83,7 +75,6 @@ void Painter2D::Delete()
 	vb_ = {};
 	vs_ = fs_ = {};
 	dev_ = nullptr;
-	ownDevice_.reset();
 	verts_.clear();
 }
 
@@ -101,7 +92,7 @@ void Painter2D::begin(int w, int h)
 	w_ = w;
 	h_ = h;
 	verts_.clear();
-	tex_ = 0;
+	tex_ = {};
 	clips_.clear();
 	xforms_.assign(1, Transform2D{});
 	alpha_.assign(1, 1.0f);
@@ -151,7 +142,7 @@ void Painter2D::flush()
 	if (p.shader) glUniform2f(p.ditherLoc, d.x, d.y); // an app's GLSL 330 program: a plain uniform
 	else pass.uniforms(gpu::Stage::Fragment, 0, Ui2dFrag{ { d.x, d.y }, {} });
 	// no Sampler: each texture samples with its own state, as it always did
-	if (tex_) pass.texture(gpu::Stage::Fragment, 0, wrapped(tex_), {});
+	if (tex_) pass.texture(gpu::Stage::Fragment, 0, tex_, {});
 	for (size_t i = 0; i < p.samplers.size(); i++)
 		pass.texture(gpu::Stage::Fragment, static_cast<uint32_t>(i + 1), wrapped(p.samplers[i].texture), {});
 	if (!clips_.empty())
@@ -167,12 +158,12 @@ void Painter2D::flush()
 
 	vbOffset_ += bytes;
 	verts_.clear();
-	tex_ = 0;
+	tex_ = {};
 }
 
-void Painter2D::useTexture(unsigned texture)
+void Painter2D::useTexture(gpu::Texture texture)
 {
-	if (texture != tex_ && tex_ != 0) flush();
+	if (texture.id != tex_.id && tex_) flush();
 	tex_ = texture;
 }
 
@@ -252,7 +243,7 @@ void Painter2D::circleOutline(float cx, float cy, float radius, float thickness,
 void Painter2D::image(unsigned texture, float x, float y, float w, float h, const glm::vec4& tint, const glm::vec4& uv)
 {
 	if (w <= 0 || h <= 0 || !texture) return;
-	useTexture(texture);
+	useTexture(wrapped(texture));
 	quad(x + w * 0.5f, y + h * 0.5f, w * 0.5f, h * 0.5f, 1, 0, 0, 0, tint, 1.0f, uv);
 }
 
@@ -266,7 +257,7 @@ void Painter2D::text(Text& font, std::string_view s, float x, float y, const glm
 	glyphs_.clear();
 	font.layout(s, pen.x, pen.y, scale * t.scale, glyphs_);
 	if (glyphs_.empty()) return;
-	useTexture(atlas);
+	useTexture(wrapped(atlas));
 	for (const Text::Glyph& g : glyphs_)
 	{
 		const float hx = (g.x1 - g.x0) * 0.5f, hy = (g.y1 - g.y0) * 0.5f;
@@ -279,10 +270,10 @@ float Painter2D::text(ShapedText& font, std::string_view s, float x, float y, co
 	if (!font.ready() || s.empty()) return 0.0f;
 	// shape() may grow or rebuild the atlas, which moves the glyphs' atlas coordinates:
 	// quads still pending from this font are drawn before that happens
-	if (tex_ != 0 && tex_ == font.texture()) flush();
+	if (tex_ && tex_.id == font.texture(*dev_).id) flush();
 	const ShapedText::Line line = font.shape(s);
 	if (line.glyphs.empty()) return line.advance;
-	useTexture(font.texture()); // after shape(): uploads the glyphs it added
+	useTexture(font.texture(*dev_)); // after shape(): uploads the glyphs it added
 	const Transform2D& t = transform();
 	const glm::vec2 pen = glm::round(t.apply(glm::vec2(x, y)));
 	for (const ShapedText::Glyph& g : line.glyphs)

@@ -1,12 +1,16 @@
 // gpu_tests -- the gpu:: interface on the GL backend: SDL_GPU's conventions
 // (top-left origin for targets, textures, viewports and scissors; depth 0..1),
 // uniform blocks, samplers, instancing, indices, culling through the flip, blend,
-// the GL natives and the state a pass leaves behind. Needs a display (a hidden
+// the GL natives and the state a pass leaves behind; Painter2D and ShapedText
+// drawing through it. Needs a display (a hidden
 // window holds the context); without one it exits 77 (skipped).
 
 #include "core/Window.h"
 #include "gpu/GL.h"
 #include "gpu/Gpu.h"
+#include "render/Framebuffer.h"
+#include "render/ShapedText.h"
+#include "ui/Painter2D.h"
 
 #include <glad/glad.h>
 
@@ -225,6 +229,52 @@ static void testNativesAndState(Fixture& f)
 	f.dev.release(again);
 }
 
+// Painter2D through gpu:: into a bound Framebuffer, with a ShapedText whose atlas
+// grows while quads of an earlier string of the same font are still in the batch:
+// they must come out as if drawn alone.
+static void testPainterShapedText()
+{
+	const std::string font = std::string(QS_FONT_DIR) + "SpaceMono-Bold.ttf";
+	const int W = 160, H = 128;
+	Framebuffer fb;
+	fb.create(W, H);
+	ui::Painter2D painter;
+	painter.create();
+	auto drawA = [&](ShapedText& t, bool thenMany) {
+		fb.Bind();
+		glViewport(0, 0, W, H);
+		glClearColor(0, 0, 0, 1);
+		glClear(GL_COLOR_BUFFER_BIT);
+		painter.begin(W, H);
+		painter.roundedRect(4, 4, 40, 20, 6, { 0.2f, 0.4f, 0.8f, 1 });
+		painter.text(t, "A", 10, 100, { 1, 1, 1, 1 });
+		if (thenMany) // far right of the target, but rasterised all the same
+			painter.text(t, "BCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 1000, 100, { 1, 1, 1, 1 });
+		painter.end();
+		std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4);
+		glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+		Framebuffer::Unbind();
+		return px;
+	};
+	ShapedText alone, growing;
+	alone.create({ { font } }, 96.0f);
+	growing.create({ { font } }, 96.0f);
+	const auto ref = drawA(alone, false);
+	const int before = growing.atlasSize();
+	const auto got = drawA(growing, true);
+	CHECK(growing.atlasSize() > before); // it did grow mid-frame
+	CHECK(got == ref);
+	size_t lit = 0;
+	for (size_t i = 0; i < ref.size(); i += 4) lit += ref[i] > 128 && ref[i + 1] > 128 && ref[i + 2] > 128;
+	CHECK(lit > 200); // the A is there
+	gpu::Device& dev = gpu::gl::contextDevice();
+	CHECK(glIsTexture(gpu::gl::native(dev, growing.texture(dev))) == GL_TRUE);
+	alone.Delete();
+	growing.Delete();
+	painter.Delete();
+	fb.Delete();
+}
+
 int main()
 {
 	SDLState state = initialize(64, 64, { .title = "gpu_tests", .hidden = true, .preferDedicatedGpu = false });
@@ -286,6 +336,7 @@ int main()
 		testCullThroughFlip(f);
 		testInstancesIndicesBlend(f);
 		testNativesAndState(f);
+		testPainterShapedText();
 		CHECK(glGetError() == GL_NO_ERROR);
 
 		bool threw = false;

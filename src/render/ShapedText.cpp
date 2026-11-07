@@ -1,7 +1,7 @@
 #include "render/ShapedText.h"
 #include "util/Utf8.h"
 
-#include <glad/glad.h>
+#include "gpu/Gpu.h"
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -87,7 +87,8 @@ struct ShapedText::Impl
 	int shelfX = kPad, shelfY = kPad, shelfH = 0;
 	std::unordered_map<uint64_t, Entry> cache;
 	bool dirty = false;
-	unsigned tex = 0;
+	gpu::Device* dev = nullptr; // where tex lives
+	gpu::Texture tex;
 	int texSize = 0;
 
 	~Impl()
@@ -322,8 +323,7 @@ void ShapedText::create(const std::vector<FontSpec>& fonts, float pixelHeight)
 void ShapedText::Delete()
 {
 	if (!impl_) return;
-	// glDeleteTextures is a null pointer when GL was never loaded (GL-free tests)
-	if (impl_->tex && glDeleteTextures) glDeleteTextures(1, &impl_->tex);
+	if (impl_->dev && impl_->tex) impl_->dev->release(impl_->tex);
 	impl_.reset();
 }
 
@@ -359,31 +359,26 @@ int ShapedText::fontFor(char32_t cp) const { return impl_ ? impl_->fontFor(cp) :
 int ShapedText::fontCount() const { return impl_ ? static_cast<int>(impl_->faces.size()) : 0; }
 int ShapedText::atlasSize() const { return impl_ ? impl_->size : 0; }
 
-unsigned ShapedText::texture()
+gpu::Texture ShapedText::texture(gpu::Device& dev)
 {
-	if (!impl_) return 0;
+	if (!impl_) return {};
 	Impl& m = *impl_;
+	if (m.tex && (m.dev != &dev || m.texSize != m.size))
+	{
+		m.dev->release(m.tex); // it grew (or moved device): a new one at the new size
+		m.tex = {};
+	}
 	if (!m.tex)
 	{
-		glGenTextures(1, &m.tex);
-		glBindTexture(GL_TEXTURE_2D, m.tex);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		m.texSize = 0;
-	}
-	else
-	{
-		glBindTexture(GL_TEXTURE_2D, m.tex);
-	}
-	if (m.dirty || m.texSize != m.size)
-	{
-		glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, m.size, m.size, 0, GL_RGBA, GL_UNSIGNED_BYTE, m.pixels.data());
+		m.dev = &dev;
+		m.tex = dev.texture({ m.size, m.size, gpu::Format::RGBA8, gpu::TextureUsage::Sampled });
 		m.texSize = m.size;
+		m.dirty = true;
+	}
+	if (m.dirty)
+	{
+		dev.upload(m.tex, m.pixels.data(), 0, 0, m.size, m.size);
 		m.dirty = false;
 	}
-	glBindTexture(GL_TEXTURE_2D, 0);
 	return m.tex;
 }

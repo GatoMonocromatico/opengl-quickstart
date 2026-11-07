@@ -255,7 +255,9 @@ protected:
 	virtual void passEnd() = 0;
 };
 
-// The window's context must be current (initialize() makes it so).
+// The window's context must be current (initialize() makes it so). Release the
+// handles made on it, and whatever holds them (a Painter2D, a ShapedText's atlas),
+// before destroying the device; destroy it before cleanup().
 std::unique_ptr<Device> createDevice(SDLState& state, Backend backend = Backend::GL);
 
 inline Pass Device::beginPass(const PassDesc& desc)
