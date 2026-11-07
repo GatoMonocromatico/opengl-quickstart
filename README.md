@@ -18,6 +18,7 @@ It is two things: a static library (`opengl_quickstart`) that apps pull in as a 
 | **FreeType** | Glyph loading and rasterising for `ShapedText` (source in `Libraries/src/freetype`, FTL) |
 | **HarfBuzz** | Text shaping for `ShapedText` (single-file amalgamation in `Libraries/src/harfbuzz`, MIT) |
 | **libpng + zlib** | Only for FreeType's PNG strikes: colour emoji fonts (source in `Libraries/src`) |
+| **glslang + SPIRV-Cross** | Build-time only, for `gpu::` shaders: `glslangValidator` and `spirv-cross` on the PATH (Ubuntu `apt install glslang-tools spirv-cross`, Windows: the Vulkan SDK) |
 
 All headers are under `Libraries/include/`. FreeType, HarfBuzz, libpng and zlib are vendored as source under `Libraries/src/` and built with the project (`cmake/TextLibraries.cmake`), so Unicode text needs no system installs either. Pre-built libraries live under `Libraries/lib_linux/lib/` (Linux) and `Libraries/lib_win/lib/` (Windows). CMake picks the right folder automatically.
 
@@ -146,6 +147,34 @@ float w = t.width("medir");                                     // no rasterisin
 - Colour glyphs keep their colours and only fade with the text colour's alpha.
 - Shaping and rasterising need no GL; `texture()` uploads the atlas, `Painter2D::text` calls it for you. The atlas grows from 512 to 4096 px and is rebuilt if it ever fills.
 - `tests/text_tests.cpp` covers fallback, shaping, clusters, atlas growth and emoji size.
+
+## Renderer interface (gpu::)
+
+`src/gpu/Gpu.h` is one rendering API over the backends: OpenGL now, SDL_GPU (Vulkan) later under the same calls. It has SDL_GPU's shape: a `gpu::Device` makes handles (`Buffer`, `Texture`, `Sampler`, `Shader`, `Pipeline`) and releases them; a `Pipeline` fixes shaders, vertex layout, blend, depth, cull and primitive at creation; uniforms are std140 blocks pushed per stage and slot; a `Pass` draws into one target (a texture, or the window).
+
+```cpp
+auto dev = gpu::createDevice(state);                         // after initialize(); destroy it before cleanup()
+gpu::Shader vs = dev->shader(MY_SHADERS "flat.vert", gpu::Stage::Vertex);
+gpu::Shader fs = dev->shader(MY_SHADERS "flat.frag", gpu::Stage::Fragment);
+gpu::Pipeline p = dev->pipeline({ .vertex = vs, .fragment = fs,
+    .buffers = { { 2 * sizeof(float) } }, .attributes = { { 0, 0, gpu::VertexFormat::Float2, 0 } },
+    .blend = gpu::Blend::Alpha });
+gpu::Buffer vb = dev->buffer(gpu::BufferUsage::Vertex, sizeof verts);
+dev->upload(vb, verts, sizeof verts);                        // uploads go between passes
+
+gpu::Texture rt = dev->texture({ 256, 256, gpu::Format::RGBA8, gpu::TextureUsage::Sampled | gpu::TextureUsage::ColorTarget });
+gpu::Pass pass = dev->beginPass({ .color = rt, .clear = true });   // no .color: the window
+pass.bind(p);
+pass.vertices(0, vb);
+pass.uniforms(gpu::Stage::Fragment, 0, Tint{ { 1, 0, 0, 1 } });
+pass.draw(3);
+pass.end();
+```
+
+- **Conventions** (SDL_GPU's, on every backend): NDC +y up, depth 0..1; texture row 0 is the top whether it was uploaded or rendered; viewports and scissors are pixels from the target's top-left. The GL backend keeps them by flipping what it draws into a texture (and the winding with it) and remapping depth in the generated shaders.
+- **Shaders** are GLSL 450 in SDL_GPU's layout: vertex samplers `set = 0`, vertex blocks `set = 1`, fragment samplers `set = 2`, fragment blocks `set = 3`; the binding is the slot. `qs_gpu_shaders(<target> <out dir> <files...>)` (`cmake/GpuShaders.cmake`) compiles them at build time to SPIR-V (`.spv`) and to GLSL 330 with a binding table for GL (`.gl`, `.refl`), and checks the sets. Load them with the output path minus the suffix. On GL a varying keeps its name in both stages and a block or sampler name belongs to one stage.
+- **Natives**: `gpu/GL.h` gives the GL names behind handles (`gpu::gl::native(dev, texture)`, `program(dev, pipeline)`), so raw GL can go between passes. A pass sets the state it needs when it binds a pipeline, and `end()` puts GL back the way `initialize()` left it. The old `VAO`/`VBO`/`EBO`/`Shader`/`Texture` classes stay as the GL layer.
+- Tests: `gpu_tests` (orientation, scissor, viewport, texture round trips, depth range, culling through the flip, blend, instancing, indices, natives, the state a pass leaves). It needs a display and is skipped (exit 77) without one.
 
 ## UI widgets
 
@@ -320,6 +349,10 @@ opengl-quickstart/
 │   │   ├── animation.h           # sprite-sheet grid animator (UV offset per frame)
 │   │   ├── point.h/.cpp          # GL_POINTS helper (separate pipeline)
 │   │   └── RoundedCorner2D.h/.cpp # round a triangle-mesh corner in 2D
+│   ├── gpu/
+│   │   ├── Gpu.h                 # the renderer interface: Device, handles, Pipeline, Pass
+│   │   ├── GpuGL.cpp             # its OpenGL 3.3 backend
+│   │   └── GL.h                  # GL names behind gpu:: handles
 │   ├── ui/
 │   │   ├── Painter2D.h/.cpp      # batched 2D shapes + images + text; clip, transform, alpha, dither, own shaders
 │   │   ├── TextEdit.h/.cpp       # caret/selection/edit model (no GL)
@@ -357,7 +390,7 @@ opengl-quickstart/
 │   ├── gameObject.h/.cpp # logical entity: indexes a Mesh in Resources + own transform
 │   └── Textures/         # sample textures
 │
-├── tests/                # RoundedCorner2D tests (test.cpp), ui_tests.cpp (Utf8, Wrap, TextEdit, Anim, CanvasView, Color, Transform2D), model_tests.cpp (STL, glTF, GLB), text_tests.cpp (ShapedText), loop_tests.cpp (Loop, Motion); run_tests.sh builds and runs them
+├── tests/                # RoundedCorner2D tests (test.cpp), ui_tests.cpp (Utf8, Wrap, TextEdit, Anim, CanvasView, Color, Transform2D), model_tests.cpp (STL, glTF, GLB), text_tests.cpp (ShapedText), loop_tests.cpp (Loop, Motion), gpu_tests.cpp + gpu/ shaders (gpu:: on GL); run_tests.sh builds and runs them
 ├── Libraries/
 │   ├── include/          # GLAD, GLM, SDL3, SDL3_image, stb, GlyphGL headers
 │   ├── src/              # FreeType, HarfBuzz, libpng, zlib sources (built by cmake/TextLibraries.cmake)

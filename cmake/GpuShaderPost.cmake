@@ -1,0 +1,55 @@
+# Run by qs_gpu_shaders() (cmake -P) on each shader spirv-cross translated:
+# - a vertex shader gets `uniform float gpu_flipY;` and multiplies gl_Position.y
+#   by it wherever spirv-cross put its clip-space fixup (every exit of main), so
+#   the GL backend can flip what it draws into a texture;
+# - the reflection JSON becomes lines `ubo <name> <slot>` / `tex <name> <slot>`,
+#   after checking each sits in SDL_GPU's set for its stage.
+
+file(READ "${GL_IN}" gl)
+file(READ "${JSON}" json)
+
+string(JSON entry GET "${json}" entryPoints 0 mode)
+if(entry STREQUAL "vert")
+    set(texSet 0)
+    set(uboSet 1)
+    set(fixup "gl_Position.z = 2.0 * gl_Position.z - gl_Position.w;")
+    string(FIND "${gl}" "${fixup}" at)
+    if(at EQUAL -1)
+        message(FATAL_ERROR "${SHADER}: no clip-space fixup in spirv-cross's output (does main write gl_Position?)")
+    endif()
+    string(REPLACE "${fixup}" "${fixup}\n    gl_Position.y *= gpu_flipY;" gl "${gl}")
+    string(REPLACE "#version 330\n" "#version 330\nuniform float gpu_flipY;\n" gl "${gl}")
+elseif(entry STREQUAL "frag")
+    set(texSet 2)
+    set(uboSet 3)
+else()
+    message(FATAL_ERROR "${SHADER}: only vertex and fragment shaders")
+endif()
+
+set(refl "")
+foreach(kind ubos textures)
+    if(kind STREQUAL "ubos")
+        set(tag ubo)
+        set(want ${uboSet})
+    else()
+        set(tag tex)
+        set(want ${texSet})
+    endif()
+    string(JSON n ERROR_VARIABLE none LENGTH "${json}" ${kind})
+    if(none OR n EQUAL 0)
+        continue()
+    endif()
+    math(EXPR last "${n} - 1")
+    foreach(i RANGE ${last})
+        string(JSON name GET "${json}" ${kind} ${i} name)
+        string(JSON set GET "${json}" ${kind} ${i} set)
+        string(JSON binding GET "${json}" ${kind} ${i} binding)
+        if(NOT set EQUAL want)
+            message(FATAL_ERROR "${SHADER}: ${name} is in set ${set}; SDL_GPU wants set ${want} for it in this stage")
+        endif()
+        string(APPEND refl "${tag} ${name} ${binding}\n")
+    endforeach()
+endforeach()
+
+file(WRITE "${GL_OUT}" "${gl}")
+file(WRITE "${REFL}" "${refl}")
