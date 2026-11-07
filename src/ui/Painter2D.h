@@ -19,6 +19,7 @@
 #include <vector>
 
 class Text;
+class ShapedText;
 class Shader;
 
 namespace ui
@@ -55,6 +56,10 @@ public:
 	// y is the baseline. Only rgb is used, GlyphGL's shader has no alpha input;
 	// mix the color toward the background for a dimmed look.
 	void text(Text& font, std::string_view s, float x, float y, const glm::vec4& color, float scale = 1.0f);
+	// Unicode text (any script, emoji, icon fonts) through ShapedText's fallback
+	// chain. y is the baseline. Uses the colour's alpha too; colour glyphs (emoji)
+	// keep their colours and only fade with it. Returns the pen advance.
+	float text(ShapedText& font, std::string_view s, float x, float y, const glm::vec4& color);
 
 	// Scissor to the rect, intersected with the current clip. Applies to shapes
 	// and text. Every push needs a pop before end().
@@ -73,6 +78,11 @@ private:
 	void applyClip();
 
 	std::unique_ptr<Shader> shader_;
+	std::unique_ptr<Shader> glyphShader_;
+	unsigned glyphVao_ = 0;
+	unsigned glyphVbo_ = 0;
+	int glyphScreenLoc_ = -1;
+	std::vector<float> glyphVerts_;
 	unsigned vao_ = 0;
 	unsigned vbo_ = 0;
 	int screenLoc_ = -1;

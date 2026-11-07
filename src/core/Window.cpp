@@ -214,8 +214,9 @@ static SDLState createWindowAndContext(int width, int height, const WindowOption
 	glEnable(GL_BLEND);
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_PROGRAM_POINT_SIZE);
-	// Standard premultiplied-style blending for textures with alpha.
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	// Colour blends with the source alpha; alpha accumulates as ONE, ONE_MINUS_SRC_ALPHA so a see-through (ARGB) window's
+	// alpha is the real coverage (the compositor reads it as premultiplied)
+	glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
 	int drawableW = 0;
 	int drawableH = 0;

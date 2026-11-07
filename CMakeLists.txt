@@ -22,6 +22,9 @@ if(NOT EXISTS "${QS_INCLUDE_DIR}" OR NOT EXISTS "${QS_LIB_DIR}")
     message(FATAL_ERROR "Expected local SDK folders at Libraries/include and platform-specific lib directory.")
 endif()
 
+# Unicode text: vendored FreeType + HarfBuzz (+ libpng, zlib), built from source.
+include(cmake/TextLibraries.cmake)
+
 # ---------------------------------------------------------------------------
 # opengl_quickstart: the engine layer apps link against.
 # Must stay STATIC: core/Window.cpp carries the dedicated-GPU exports that only
@@ -39,6 +42,7 @@ add_library(opengl_quickstart STATIC
     src/render/cgltf_impl.c
     src/render/point.cpp
     src/render/RoundedCorner2D.cpp
+    src/render/ShapedText.cpp
     src/render/shaderClass.cpp
     src/render/Text.cpp
     src/render/texture.cpp
@@ -75,6 +79,8 @@ if(NOT SDL3_IMAGE_LIBRARY)
 endif()
 
 target_link_libraries(opengl_quickstart PUBLIC "${SDL3_LIBRARY}" "${SDL3_IMAGE_LIBRARY}")
+# HarfBuzz/FreeType headers stay private: only ShapedText.cpp sees them
+target_link_libraries(opengl_quickstart PRIVATE qs_harfbuzz qs_freetype)
 
 if(WIN32)
     target_link_libraries(opengl_quickstart PUBLIC opengl32)
@@ -133,6 +139,13 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_executable(ui_tests tests/ui_tests.cpp src/ui/TextEdit.cpp src/ui/Wrap.cpp)
     target_include_directories(ui_tests PRIVATE "${QS_ROOT}/src")
     add_test(NAME ui_tests COMMAND ui_tests)
+
+    # Tests for ShapedText's GL-free half (fallback, shaping, atlas), bundled fonts only
+    add_executable(text_tests tests/text_tests.cpp src/render/ShapedText.cpp src/glad.c)
+    target_include_directories(text_tests PRIVATE "${QS_ROOT}/src" "${QS_INCLUDE_DIR}")
+    target_link_libraries(text_tests PRIVATE qs_harfbuzz qs_freetype)
+    target_compile_definitions(text_tests PRIVATE QS_FONT_DIR="${QS_ROOT}/fonts/")
+    add_test(NAME text_tests COMMAND text_tests)
 
     # Tests for model loading (STL, glTF, GLB), GL-free
     add_executable(model_tests tests/model_tests.cpp src/render/ModelData.cpp src/render/cgltf_impl.c)
