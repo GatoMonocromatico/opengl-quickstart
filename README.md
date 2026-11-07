@@ -155,6 +155,8 @@ float w = t.width("medir");                                     // no rasterisin
 | `ui/TextEdit.h` | no | UTF-8 string + caret + selection: insert, backspace/delete (Ctrl = word), arrows, home/end, up/down over wrapped lines, select all/word, cut/paste text in and out |
 | `ui/Wrap.h` | no | `wrap(text, maxWidth, measure)` -> line ranges (word wrap, long words broken, `\n` kept); `lineOfOffset`, `indexInLine(s)` |
 | `ui/Context.h` | yes | immediate-mode widgets, input, `Theme` |
+| `ui/Motion.h` | no | `Tween<T>` and `Spring<T>` (float or glm vectors), `CubicBezier` easing with presets, reduced motion, the shared frame clock |
+| `ui/Loop.h` | no | event loop that sleeps until a frame is due: SDL events, timers (`after`/`every`), watched fds (POSIX), animations, `requestFrame()` |
 
 ```cpp
 ui::Painter2D painter;  painter.create();
@@ -186,7 +188,36 @@ Mouse helpers for custom widgets, the same ones the widgets use: `hovered(rect)`
 
 Notes: text color has no alpha (GlyphGL's shader takes rgb only). Mouse coordinates are converted to drawable pixels, so high-DPI works. `ui::Context` ignores everything it doesn't handle, the app keeps its own key handling (check `wantsKeyboard()` first).
 
-Demo: `./build/opengl_quickstart_widgets` (`QS_SHOT=<png>` saves a frame and exits, `QS_TAB=0|1|2` picks the tab). Tests for the non-GL parts: `tests/run_tests.sh` or `ctest` in the build dir (`ui_tests`, `model_tests`).
+Demo: `./build/opengl_quickstart_widgets` (`QS_SHOT=<png>` saves a frame and exits, `QS_TAB=0|1|2` picks the tab). Tests for the non-GL parts: `tests/run_tests.sh` or `ctest` in the build dir (`ui_tests`, `model_tests`, `loop_tests`).
+
+### Animation and the event loop
+
+`ui::Loop` replaces the hand-written `SDL_WaitEventTimeout` loop above and adds timers, file descriptors and animation. It sleeps until something needs a frame, so an idle app uses no CPU or GPU, and while anything animates it hands out frames at vsync:
+
+```cpp
+ui::Loop loop;
+loop.attach(ui);                                     // caret blink and ui.requestRedraw() drive frames
+loop.every(1.0, [&] { loop.requestFrame(); });       // a clock
+loop.watch(fd, [&] { readAll(fd); loop.requestFrame(); });  // a socket; runs on this thread (POSIX)
+
+ui::Spring<glm::vec2> pos{ { 0, 0 } };               // response 0.35 s, damping 0.86
+ui::Tween<float> fade{ 0.0f, 0.22f, ui::ease::fadeIn };
+
+while (loop.next([&](const SDL_Event& e) {
+    ui.handleEvent(e);
+    if (e.type == SDL_EVENT_KEY_DOWN) { pos.set({ 300, 0 }); fade.set(1); }  // from where they are now
+}))
+{
+    // value() at the frame time; anything still moving asks for the next frame by itself
+    painter.roundedRect(pos.value().x, pos.value().y, 200, 80, 12, { 1, 1, 1, fade.value() });
+    ...
+    SDL_GL_SwapWindow(state.window);
+}
+```
+
+`next()` returns true when a frame is due (a `requestFrame()`, a moving tween or spring, an attached `Context` that needs a redraw, a window expose or resize) and false after `quit()` or `SDL_EVENT_QUIT`. Callbacks for timers and fds run on the calling thread. An fd is polled by one helper thread that wakes the loop; it stops polling that fd until its callback has run, so the callback must read what is there, or `cancel()` the watch on EOF.
+
+Tweens and springs are pull-based: nothing registers, they copy like values, and one that isn't drawn costs nothing. `set()` retargets from the current value (and velocity, for springs), so a new target mid-flight never jumps. `Spring(value, response, damping, precision)`: response is the period in seconds, damping 1 means no bounce and below 1 overshoots, precision is in the value's own units (0.001 for 0..1, about 0.1 for pixels). Easing presets match the Sisteme picom curves: `ease::enter`, `fadeIn`, `leave`, `standard`, `linear`; any CSS `CubicBezier{x1, y1, x2, y2}` works. `motion::setReduced(true)` makes every `set()` jump to its target. Tests: `loop_tests`.
 
 ## Repository layout
 
@@ -215,7 +246,9 @@ opengl-quickstart/
 │   │   ├── Painter2D.h/.cpp      # batched 2D shapes + text + clip, shader in shaders/ui2d.*
 │   │   ├── TextEdit.h/.cpp       # caret/selection/edit model (no GL)
 │   │   ├── Wrap.h/.cpp           # word wrap over a measure function (no GL)
-│   │   └── Context.h/.cpp        # immediate-mode widgets, input, Theme
+│   │   ├── Context.h/.cpp        # immediate-mode widgets, input, Theme
+│   │   ├── Motion.h/.cpp         # tweens, springs, cubic-bezier easing, frame clock (no GL)
+│   │   └── Loop.h/.cpp           # event loop: timers, fd watches, frames on demand (no GL)
 │   └── util/
 │       ├── Utf8.h                # UTF-8 decode / step / validate helpers
 │       ├── DebugLog.h            # zero-cost debug logging macros (see below)
