@@ -40,6 +40,8 @@ namespace motion
 	// true when something moved since frame() and needs another frame
 	bool wantsFrame();
 	void requestFrame();
+	// Sets it outright: Loop uses it to tell which window's drawing asked for a frame.
+	void setWantsFrame(bool want);
 
 	// reduced motion: set() snaps to the target instead of animating
 	bool reduced();

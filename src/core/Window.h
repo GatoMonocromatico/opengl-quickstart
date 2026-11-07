@@ -61,4 +61,14 @@ struct WindowOptions
 // On failure everything created so far is already released and
 // successfullyInitialized is false.
 SDLState initialize(int width, int height, const WindowOptions& options = {});
+
+// Another window drawn with state's GL context, so it shares every texture, shader,
+// font atlas and painter: SDL_GL_MakeCurrent(window, state.context) before drawing
+// into it. It gets the context's pixel format, so `transparent` must match what
+// initialize() was given; title, size, resizable, borderless, alwaysOnTop,
+// transparent and hidden are read from options (the rest is the context's). x, y
+// in screen pixels (SDL_WINDOWPOS_UNDEFINED lets the WM place it). Null on failure
+// (SDL_GetError says why). Destroy it with SDL_DestroyWindow before cleanup().
+SDL_Window* createSharedWindow(const SDLState& state, int width, int height, const WindowOptions& options,
+                               int x = SDL_WINDOWPOS_UNDEFINED, int y = SDL_WINDOWPOS_UNDEFINED);
 void cleanup(SDLState& state);

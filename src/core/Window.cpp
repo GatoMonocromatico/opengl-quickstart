@@ -259,6 +259,36 @@ SDLState initialize(int width, int height, const WindowOptions& options)
 	return state;
 }
 
+SDL_Window* createSharedWindow(const SDLState& state, int width, int height, const WindowOptions& options, int x, int y)
+{
+	if (!state.context) return nullptr;
+	SDL_WindowFlags flags = SDL_WINDOW_OPENGL | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+	if (options.resizable) flags |= SDL_WINDOW_RESIZABLE;
+	if (options.borderless) flags |= SDL_WINDOW_BORDERLESS;
+	if (options.alwaysOnTop) flags |= SDL_WINDOW_ALWAYS_ON_TOP;
+	if (options.transparent) flags |= SDL_WINDOW_TRANSPARENT;
+	if (options.hidden) flags |= SDL_WINDOW_HIDDEN;
+	const SDL_PropertiesID props = SDL_CreateProperties();
+	SDL_SetStringProperty(props, SDL_PROP_WINDOW_CREATE_TITLE_STRING, options.title);
+	SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_X_NUMBER, x);
+	SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_Y_NUMBER, y);
+	SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, width);
+	SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, height);
+	SDL_SetNumberProperty(props, SDL_PROP_WINDOW_CREATE_FLAGS_NUMBER, static_cast<Sint64>(flags));
+	SDL_Window* window = SDL_CreateWindowWithProperties(props);
+	SDL_DestroyProperties(props);
+	if (!window) return nullptr;
+	// it must take the context, or its visual doesn't match (e.g. transparent differs)
+	if (!SDL_GL_MakeCurrent(window, state.context))
+	{
+		SDL_DestroyWindow(window);
+		SDL_GL_MakeCurrent(state.window, state.context);
+		return nullptr;
+	}
+	SDL_GL_MakeCurrent(state.window, state.context);
+	return window;
+}
+
 void cleanup(SDLState& state)
 {
 	if (state.context) {
