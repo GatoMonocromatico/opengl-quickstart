@@ -49,6 +49,8 @@ add_library(opengl_quickstart STATIC
     src/render/VAO.cpp
     src/render/VBO.cpp
     src/ui/Context.cpp
+    src/ui/Loop.cpp
+    src/ui/Motion.cpp
     src/ui/Painter2D.cpp
     src/ui/TextEdit.cpp
     src/ui/Wrap.cpp
@@ -146,6 +148,12 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(text_tests PRIVATE qs_harfbuzz qs_freetype)
     target_compile_definitions(text_tests PRIVATE QS_FONT_DIR="${QS_ROOT}/fonts/")
     add_test(NAME text_tests COMMAND text_tests)
+
+    # Tests for ui/Motion (tweens, springs, easing) and ui/Loop (timers, fd watches, frames)
+    add_executable(loop_tests tests/loop_tests.cpp)
+    target_link_libraries(loop_tests PRIVATE opengl_quickstart)
+    quickstart_setup_executable(loop_tests)
+    add_test(NAME loop_tests COMMAND loop_tests)
 
     # Tests for model loading (STL, glTF, GLB), GL-free
     add_executable(model_tests tests/model_tests.cpp src/render/ModelData.cpp src/render/cgltf_impl.c)
