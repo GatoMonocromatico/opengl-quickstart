@@ -4,6 +4,8 @@
 #include "ui/Motion.h"
 
 #include <SDL3/SDL.h>
+#include <poll.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #include <cmath>
@@ -182,6 +184,36 @@ static void testLoop()
 	CHECK(loop.next(onEvent) && reads == 2);
 	close(fds[0]);
 	close(fds[1]);
+
+	// event masks: POLLOUT fires at once on a writable socket, setEvents switches to
+	// POLLIN, 0 pauses the watch, and the callback sees which events happened
+	int sv[2];
+	CHECK(socketpair(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0, sv) == 0);
+	short seen = 0;
+	int calls = 0;
+	int ew = 0;
+	ew = loop.watch(sv[0], POLLOUT, [&](short revents) {
+		seen = revents;
+		calls++;
+		loop.setEvents(ew, POLLIN); // written what we had
+		char c;
+		while (read(sv[0], &c, 1) == 1) {}
+		loop.requestFrame();
+	});
+	CHECK(loop.next(onEvent) && calls == 1 && (seen & POLLOUT) && !(seen & POLLIN));
+	loop.after(0.05, [&] { loop.requestFrame(); });
+	CHECK(loop.next(onEvent) && calls == 1); // POLLIN only: nothing to read yet
+	(void)!write(sv[1], "x", 1);
+	CHECK(loop.next(onEvent) && calls == 2 && (seen & POLLIN));
+	loop.setEvents(ew, 0);
+	(void)!write(sv[1], "y", 1);
+	loop.after(0.05, [&] { loop.requestFrame(); });
+	CHECK(loop.next(onEvent) && calls == 2); // paused
+	loop.setEvents(ew, POLLIN);
+	CHECK(loop.next(onEvent) && calls == 3); // the queued byte is seen once resumed
+	loop.cancel(ew);
+	close(sv[0]);
+	close(sv[1]);
 
 	// an animation keeps frames coming, then the loop goes back to sleep
 	ui::Tween<float> t{ 0.0f, 0.1f };
