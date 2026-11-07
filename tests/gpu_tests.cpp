@@ -2,7 +2,7 @@
 // (top-left origin for targets, textures, viewports and scissors; depth 0..1),
 // uniform blocks, samplers, instancing, indices, culling through the flip, blend,
 // the GL natives and the state a pass leaves behind; Painter2D and ShapedText
-// drawing through it; Framebuffer and ScreenCapture as gpu:: textures. Needs a display (a hidden
+// drawing through it; ImageAtlas images and masks; Framebuffer and ScreenCapture as gpu:: textures. Needs a display (a hidden
 // window holds the context); without one it exits 77 (skipped).
 
 #include "core/Window.h"
@@ -10,6 +10,7 @@
 #include "gpu/Gpu.h"
 #include "render/Framebuffer.h"
 #include "render/ShapedText.h"
+#include "ui/ImageAtlas.h"
 #include "ui/Painter2D.h"
 
 #include <glad/glad.h>
@@ -275,6 +276,55 @@ static void testPainterShapedText()
 	fb.Delete();
 }
 
+// ImageAtlas entries drawn in their own colours and as masks, the atlas growing mid-batch
+static void testPainterAtlas()
+{
+	auto solid = [](int w, int h, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+		ui::Image im;
+		im.w = w;
+		im.h = h;
+		for (int i = 0; i < w * h; i++) im.pixels.insert(im.pixels.end(), { r, g, b, a });
+		return im;
+	};
+	const int W = 32, H = 16;
+	Framebuffer fb;
+	fb.create(W, H);
+	ui::Painter2D painter;
+	painter.create();
+	ui::ImageAtlas atlas(16, 128);
+	const int red = atlas.add(solid(8, 8, 255, 0, 0, 255));
+	const int half = atlas.add(solid(4, 4, 128, 128, 128, 128)); // 50% white, premultiplied
+	fb.Bind();
+	glViewport(0, 0, W, H);
+	glClearColor(0, 0, 0, 1);
+	glClear(GL_COLOR_BUFFER_BIT);
+	painter.begin(W, H);
+	painter.image(atlas, red, 0, 0, 8, 8);
+	painter.mask(atlas, half, 8, 0, 4, 4, { 0, 0, 1, 1 });   // blue at half coverage
+	painter.image(atlas, half, 12, 0, 4, 4);                 // grey over black
+	painter.image(atlas, red, 16, 0, 8, 8, 0.5f);            // faded
+	const int grown = atlas.add(solid(40, 40, 0, 255, 0, 255)); // forces the atlas to grow
+	CHECK(atlas.size() == 64);
+	painter.image(atlas, grown, 24, 8, 8, 8);
+	painter.image(atlas, red, 0, 8, 8, 8); // its old uv no longer holds: drawn with the new one
+	painter.end();
+	std::vector<uint8_t> p(static_cast<size_t>(W) * H * 4);
+	glReadPixels(0, 0, W, H, GL_RGBA, GL_UNSIGNED_BYTE, p.data());
+	Framebuffer::Unbind();
+	auto at = [&](int x, int y) { return px(p, W, x, H - 1 - y); }; // GL reads bottom row first
+	CHECK(is(at(3, 3), 255, 0, 0, 255));
+	CHECK(is(at(0, 0), 255, 0, 0, 255) && is(at(7, 7), 255, 0, 0, 255)); // pixel for pixel to its edges
+	CHECK(is(at(9, 1), 0, 0, 128, 255, 2));
+	CHECK(is(at(13, 1), 128, 128, 128, 255, 2));
+	CHECK(is(at(19, 3), 128, 0, 0, 255, 2));
+	CHECK(is(at(27, 11), 0, 255, 0, 255));
+	CHECK(is(at(3, 11), 255, 0, 0, 255));
+	CHECK(is(at(10, 10), 0, 0, 0, 255)); // nothing drawn there
+	painter.Delete();
+	atlas.release();
+	fb.Delete();
+}
+
 // Framebuffer and ScreenCapture as gpu:: textures, drawn by Painter2D::image
 static void testFramebufferBridge()
 {
@@ -375,6 +425,7 @@ int main()
 		testInstancesIndicesBlend(f);
 		testNativesAndState(f);
 		testPainterShapedText();
+		testPainterAtlas();
 		testFramebufferBridge();
 		CHECK(glGetError() == GL_NO_ERROR);
 

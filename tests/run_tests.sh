@@ -8,11 +8,12 @@ gcc -std=c99 -c -I ../Libraries/include -o ../build/cgltf_impl.o ../src/render/c
 g++ -std=c++20 -Wall -Wextra -I ../src -I ../Libraries/include -o ../build/model_tests model_tests.cpp ../src/render/ModelData.cpp ../build/cgltf_impl.o
 # text_tests, loop_tests and gpu_tests need the vendored FreeType/HarfBuzz, so it goes through CMake
 cmake -S .. -B ../build-tests -DCMAKE_BUILD_TYPE=Release >/dev/null
-cmake --build ../build-tests --target text_tests loop_tests gpu_tests -j >/dev/null
+cmake --build ../build-tests --target text_tests loop_tests image_tests gpu_tests -j >/dev/null
 echo "Build OK"
 ../build/test
 ../build/ui_tests
 ../build/model_tests
 ../build-tests/text_tests
 ../build-tests/loop_tests
+../build-tests/image_tests
 ../build-tests/gpu_tests || [ $? -eq 77 ]

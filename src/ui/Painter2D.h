@@ -36,6 +36,8 @@ class ShapedText;
 namespace ui
 {
 
+class ImageAtlas;
+
 class Painter2D
 {
 public:
@@ -71,6 +73,12 @@ public:
 	// The same for a gpu:: texture on the painter's device (Framebuffer::color, say).
 	void image(gpu::Texture texture, float x, float y, float w, float h, const glm::vec4& tint = glm::vec4(1.0f),
 	           const glm::vec4& uv = glm::vec4(0.0f, 0.0f, 1.0f, 1.0f));
+
+	// An ImageAtlas entry over the rect in its own colours, faded by alpha. At its own
+	// size and no scale it lands on whole pixels, pixel for pixel.
+	void image(ImageAtlas& atlas, int id, float x, float y, float w, float h, float alpha = 1.0f);
+	// Only its alpha, filled with color: one tint for a symbolic icon, cheap to animate.
+	void mask(ImageAtlas& atlas, int id, float x, float y, float w, float h, const glm::vec4& color);
 
 	// y is the baseline; the start lands on a whole pixel. The color's alpha counts.
 	void text(Text& font, std::string_view s, float x, float y, const glm::vec4& color, float scale = 1.0f);
@@ -143,6 +151,7 @@ private:
 	          float pad, float mode, const glm::vec4& uv);
 	// unit 0 for what's pending; another texture flushes first
 	void useTexture(gpu::Texture texture);
+	void atlasQuad(ImageAtlas& atlas, int id, float x, float y, float w, float h, const glm::vec4& color, float mode);
 	void applyClip();
 
 	gpu::Device* dev_ = nullptr;
